@@ -1,0 +1,41 @@
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+
+# Qualquer arquivo de credencial, sob qualquer nome. A lista da estacao 2 da
+# esteira (`credenciais-seguras.md`): senha nunca em arquivo versionado.
+creds*
+credenciais*
+*.pem
+*.key
+*.pfx
+wallet/
+
+# Exportacoes e dumps: saem do banco com dado real dentro.
+*.zip
+*.dump
+*.sql.gz
+data/
+
+# Configuracao local de ferramentas de editor/agente.
+.claude/settings.local.json
+
+*.log
+npm-debug.log*
+
+.DS_Store
+Thumbs.db
+
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+playwright-report/
+test-results/

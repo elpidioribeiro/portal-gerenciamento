@@ -1,0 +1,33 @@
+{{- if .Values.ingress.habilitado }}
+{{/*
+  O Ingress do portal — e ele é DESTE chart, não do backend.
+
+  Tudo entra por aqui: o nginx da imagem serve a tela e encaminha `/api` para o
+  Service do backend. O TLS sustenta `COOKIE_SECURE=true` do backend; desligar
+  um sem o outro tira a sessão inteira.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.nome }}
+  labels:
+    app: {{ .Values.nome }}
+spec:
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.nome }}
+                port:
+                  name: http
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ .Values.nome }}-tls
+  {{- end }}
+{{- end }}

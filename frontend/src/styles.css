@@ -1,0 +1,82 @@
+/* Inter self-hosted: a rede corporativa pode bloquear o Google Fonts, e a CSP
+   de produção não permite host externo. */
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+@import '@fontsource/inter/800.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-fundo font-sans text-texto;
+  }
+
+  /* Números sempre alinhados: sem isso, valores em coluna dançam de largura
+     conforme os dígitos, e a matriz do painel fica visualmente instável. */
+  .tabular,
+  table,
+  input[type='number'] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Evita a última linha órfã em textos longos (comentários, descrições). */
+  p,
+  .prosa {
+    text-wrap: pretty;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-navy-medio;
+  }
+}
+
+/*
+ * A FAIXA DE AVISO: fixa, e abaixo da faixa de identidade da tela.
+ *
+ * Mora aqui, no CSS global, e não no de uma das reuniões: a faixa é do Layout —
+ * ela aparece em qualquer tela — e as duas variáveis que ela lê são publicadas
+ * por quem as mede (`AppHeader` e `useAlturaDaFaixa`).
+ *
+ * `--altura-faixa-identidade` vale ZERO onde não há faixa de identidade, e é o
+ * caso do painel do N2 e das Ações: ali o aviso gruda direto no cabeçalho.
+ *
+ * `order: -1` põe o aviso depois da faixa de identidade (que leva `-2`) e antes
+ * do conteúdo (`0`). As telas de reunião devolvem fragmento, então os três são
+ * irmãos diretos do `<main>`, que é `flex-col`.
+ */
+.faixa-aviso {
+  position: sticky;
+  top: calc(var(--altura-cabecalho, 124px) + var(--altura-faixa-identidade, 0px));
+  z-index: 19;
+  order: -1;
+}
+
+/*
+ * NA MESMA COLUNA DO CONTEÚDO, nas telas que têm uma.
+ *
+ * O `<main>` não tem largura máxima -- o painel do N2 usa a tela inteira --, mas
+ * as reuniões vivem numa coluna de 1320px centralizada. Sem isto o aviso ia até
+ * a borda da janela e a faixa da reunião parava em 1320: a 1900px de tela, duas
+ * faixas empilhadas com bordas em lugares diferentes. Foi o que o analista
+ * chamou de quebrado.
+ *
+ * `:has()` porque a faixa de identidade vem DEPOIS do aviso no DOM (o aviso é do
+ * Layout, a faixa é da tela) e CSS não tem seletor de irmão anterior. Onde
+ * `:has` não existir, a regra é ignorada e o aviso volta a ocupar a largura
+ * toda -- desalinhado, como era antes, e nada quebra.
+ */
+main:has(.n4-faixa) .faixa-aviso,
+main:has(.n3-gds) .faixa-aviso {
+  width: 100%;
+  max-width: 1320px;
+  margin-inline: auto;
+}

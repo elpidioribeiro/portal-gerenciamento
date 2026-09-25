@@ -1,0 +1,11 @@
+apiVersion: v2
+name: portal-gd-frontend
+description: Portal GD — a tela do Gerenciamento Diário (Acme Varejo)
+
+# Escrito em 14/09/2026 junto com o do backend, e pelo mesmo motivo: não havia
+# chart nenhum. ANTES DO PRIMEIRO DEPLOY, compare com o `novo-chart-template`
+# da área e adote a estrutura padrão.
+
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

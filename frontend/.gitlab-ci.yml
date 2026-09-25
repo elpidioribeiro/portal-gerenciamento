@@ -1,0 +1,146 @@
+# Portal GD — frontend.
+#
+# ATENÇÃO: escrito a partir do pipeline do backend, e NÃO copiado do
+# `novo-app-template` da área, que não estava na máquina. A estação 5 exige o
+# template intacto — antes de subir, compare e mantenha o que for do padrão.
+#
+# Ordem: qualidade → build → deploy. Não há estágio de migração: quem tem banco
+# é o backend.
+
+stages:
+  - qualidade
+  - build
+  - deploy
+
+variables:
+  APP: portal-gd-frontend
+  # `$CI_REGISTRY_IMAGE` JÁ é o caminho do projeto no registry. Concatenar
+  # `$APP` criaria um nível a mais e publicaria num lugar diferente de onde o
+  # chart procura — imagem publicada num endereço e puxada de outro, com o
+  # pipeline todo verde e `ImagePullBackOff` no cluster.
+  IMAGEM: $CI_REGISTRY_IMAGE
+
+default:
+  image: node:24-alpine
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - node_modules/
+
+.instalar: &instalar
+  before_script:
+    - npm ci
+
+# ── Qualidade ────────────────────────────────────────────────────────────────
+
+lint:
+  stage: qualidade
+  <<: *instalar
+  script:
+    - npm run lint
+
+tipos:
+  stage: qualidade
+  <<: *instalar
+  script:
+    - npx tsc --noEmit
+
+teste:
+  stage: qualidade
+  <<: *instalar
+  # Sem serviço de banco: a suíte do frontend é de unidade e de render, e não
+  # toca em Postgres. É o backend que precisa de um.
+  script:
+    - npm test
+
+# ── Build ────────────────────────────────────────────────────────────────────
+
+imagem:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  cache: []
+  variables:
+    # As duas andam JUNTAS — mesmo motivo do backend: do `docker:19` em diante
+    # o dind liga TLS sozinho e escuta em 2376, e o runner desta área aponta o
+    # cliente para 2375. O sintoma é `Cannot connect to the Docker daemon`
+    # DEPOIS de um `docker login` bem-sucedido, porque o login não encosta no
+    # daemon.
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: tcp://docker:2375
+    FF_NETWORK_PER_BUILD: "true"
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  script:
+    - docker build -t "$IMAGEM:$CI_COMMIT_SHORT_SHA" .
+    - docker push "$IMAGEM:$CI_COMMIT_SHORT_SHA"
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        docker tag "$IMAGEM:$CI_COMMIT_SHORT_SHA" "$IMAGEM:latest"
+        docker push "$IMAGEM:latest"
+      fi
+    # O endereco exato, no fim do log: e' o que a infra copia para subir.
+    - |
+      echo "────────────────────────────────────────────────────────────"
+      echo "  Imagem publicada:  $IMAGEM:$CI_COMMIT_SHORT_SHA"
+      echo "  Commit:            $CI_COMMIT_SHORT_SHA"
+      echo "  Como rodar:        ver chart/values.yaml neste repositorio"
+      echo "────────────────────────────────────────────────────────────"
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+# ── Deploy ───────────────────────────────────────────────────────────────────
+
+# Mesmo job e mesmo motivo do backend (ver o comentário lá para o detalhe
+# completo): o chart REAL fica no example-charts (gitlab.example.com), não aqui.
+# Este job clona o example-charts, atualiza `imagem.tag` no `fleet.yaml` de lá via
+# sed (não yq, para não arriscar reescrever o resto do arquivo compartilhado
+# com outros apps) e empurra. Não roda `helm upgrade` nem toca o cluster —
+# quem aplica é o Fleet, sozinho, ao reconciliar. Precisa da CI/CD variable
+# `CHARTS_ACCESS_TOKEN` (criada no grupo `example-team`, não no
+# projeto, para valer pros dois repos).
+atualiza-chart-imb:
+  stage: deploy
+  image: alpine:latest
+  needs: ["imagem"]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  before_script:
+    - apk add --no-cache git
+  script:
+    - |
+      set -e
+      IMAGE_TAG="$CI_COMMIT_SHORT_SHA"
+      for attempt in 1 2 3 4 5; do
+        rm -rf chart
+        git clone --depth 1 "https://oauth2:${CHARTS_ACCESS_TOKEN}@gitlab.example.com/infra/charts/example-charts.git" chart
+        FLEET=chart/operacoes/example-team/portal-gd-frontend/fleet.yaml
+        test "$(grep -c '^          tag: ' "$FLEET")" = "1"
+        sed -i "s|^          tag: .*|          tag: \"$IMAGE_TAG\"|" "$FLEET"
+        grep -n '^          tag: ' "$FLEET"
+        cd chart
+        git config user.email "ci@acmelabs.com.br"
+        git config user.name "CI portal-gd-frontend"
+        git add operacoes/example-team/portal-gd-frontend/fleet.yaml
+        if git diff --cached --quiet; then
+          echo "chart ja esta na tag $IMAGE_TAG, nada a fazer"
+          cd ..
+          break
+        fi
+        git commit -m "[ci] portal-gd-frontend: imagem.tag $IMAGE_TAG (imb) [skip ci]"
+        if git push origin main; then
+          echo "push OK na tentativa $attempt"
+          cd ..
+          break
+        fi
+        echo "push falhou na tentativa $attempt (provavel race condition no example-charts compartilhado), tentando de novo"
+        cd ..
+        if [ "$attempt" = "5" ]; then
+          echo "ERRO: esgotou as tentativas de push"
+          exit 1
+        fi
+        sleep $((RANDOM % 5 + 2))
+      done

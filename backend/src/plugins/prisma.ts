@@ -1,0 +1,23 @@
+import { PrismaClient } from '@prisma/client'
+import type { FastifyInstance } from 'fastify'
+import fp from 'fastify-plugin'
+import { env } from '../config/env.js'
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    prisma: PrismaClient
+  }
+}
+
+export default fp(async function prismaPlugin(app: FastifyInstance) {
+  const prisma = new PrismaClient({
+    log: env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
+  })
+
+  await prisma.$connect()
+
+  app.decorate('prisma', prisma)
+  app.addHook('onClose', async () => {
+    await prisma.$disconnect()
+  })
+})

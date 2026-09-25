@@ -1,0 +1,230 @@
+# Portal GD — backend.
+#
+# ATENÇÃO: preenchido a partir da descrição do PLANO.md (§11–12), NÃO copiado do
+# `novo-chart-template` da área, que não estava disponível na máquina. Antes de
+# subir, compare com o template e mantenha a estrutura padrão.
+
+nome: portal-gd-backend
+replicas: 1
+
+imagem:
+  # TEM de ser o valor literal de `$CI_REGISTRY_IMAGE` do projeto — o caminho
+  # que aparece na página Container Registry do GitLab. O valor abaixo é
+  # DEDUZIDO do endereço do repositório e **não foi confirmado**: falta saber a
+  # porta do registry (5050 é o padrão do GitLab, mas a área pode usar host
+  # próprio). Confirme antes do primeiro deploy; errar aqui dá
+  # `ImagePullBackOff` com o pipeline verde.
+  repositorio: gitlab.example.com:5050/operacoes/example-team/portal-gd/portal-gd-backend
+  # Sem `latest` em produção: a tag tem de dizer QUAL commit está no ar, senão
+  # "reiniciar o pod" pode trocar a versão sem ninguém pedir.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+servico:
+  porta: 80
+  portaAlvo: 3001
+
+# ─────────────────────────────────────────────────────────────────────────────
+# O INGRESS É DO FRONTEND, não daqui.
+#
+# A tela chama `/api/v1` na MESMA ORIGEM -- o cookie de sessão é `sameSite:
+# strict` e não seria enviado para outro domínio. Então portal e API respondem
+# no mesmo host, e quem fica na frente é o nginx da imagem do frontend: ele
+# serve os estáticos e encaminha `/api` para o Service DESTE chart.
+#
+# Dois Ingress para o mesmo host é conflito, e qual ganha depende do
+# controlador. Este ficou desligado em 14/09/2026, quando o deploy do frontend
+# passou a existir.
+#
+# Para expor a API sozinha (um ambiente de teste, por exemplo), ligue e dê um
+# host PRÓPRIO -- nunca o mesmo do portal.
+# ─────────────────────────────────────────────────────────────────────────────
+ingress:
+  habilitado: false
+  host: api.portal-gd.example.com
+  tls: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UMA RÉPLICA, de propósito.
+#
+# O agendamento das cargas roda DENTRO do processo, e a trava de carga
+# concorrente é por processo (ver src/modules/carga/executar.ts). Com duas
+# réplicas, as duas disparariam a mesma carga às 03:15: não corrompe — a
+# ingestão é substituição de janela em transação, com o mesmo SQL — mas gasta o
+# dobro e pode registrar erro de chave única espúrio.
+#
+# Antes de subir para 2, trocar a trava por `pg_advisory_lock`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+recursos:
+  requests:
+    cpu: 100m
+    memoria: 256Mi
+  limits:
+    cpu: 500m
+    # ─────────────────────────────────────────────────────────────────────────
+    # 1Gi DESDE 18/09/2026, E A CONTA ANTERIOR ESTAVA ERRADA.
+    #
+    # O comentário que estava aqui dizia: "a carga de Perdas segura ~25 mil
+    # linhas em memória por bloco de 31 dias; 512Mi é folgado para isso". O erro
+    # não foi o número — foi dimensionar pela fonte ERRADA.
+    #
+    # `vendas-linha` é a mais pesada do sistema e carrega em blocos de 7 dias
+    # (ver DIAS_POR_BLOCO em src/modules/carga/executar.ts). Medido no banco de
+    # desenvolvimento: 5.340 linhas por dia, pico de 5.965 -- ou seja **~37 mil
+    # linhas por bloco**, contra as 25 mil de Perdas que embasaram o 512Mi.
+    #
+    # E o volume em memória é maior que as linhas: ao mesmo tempo existem o
+    # resultado cru do Oracle, o array mapeado, o lote que o Prisma monta, os
+    # mapas de `resolverHierarquia` e a conferência contra o agregado.
+    #
+    # O QUE ACONTECEU EM PRODUÇÃO, em 18/09/2026: cinco reinícios, e o pod com
+    # `reason: OOMKilled`, `exitCode: 137`, morto 87 segundos depois de subir.
+    # A carga ficava presa em EM_ANDAMENTO para sempre, porque o processo morre
+    # entre a linha de início e a de conclusão -- ver `executarCarga`.
+    #
+    # O bloco de 7 dias foi escolhido contra o teto de linhas do ORACLE
+    # (`ORACLE_MAX_ROWS`), não contra a memória. Os dois limites existiam e
+    # ninguém os comparou; este comentário é para que a próxima pessoa compare.
+    # ─────────────────────────────────────────────────────────────────────────
+    memoria: 1Gi
+
+sonda:
+  # `/health` não toca o banco: responde enquanto o processo estiver vivo. É o
+  # certo para liveness — reiniciar o pod porque o Postgres piscou só piora.
+  liveness:
+    caminho: /health
+    atrasoInicial: 20
+    intervalo: 30
+  readiness:
+    # `/ready` e NÃO `/health`: prontidão exige o banco respondendo, e
+    # `/health` não o toca. Apontar os dois para a mesma sonda faz um pod com
+    # o Postgres fora reportar Ready e RECEBER TRÁFEGO. `/ready` faz
+    # `SELECT 1` e devolve 503 quando falha.
+    caminho: /ready
+    atrasoInicial: 5
+    intervalo: 10
+
+# Variáveis não-secretas. As secretas vêm do Secret do Kubernetes.
+env:
+  NODE_ENV: production
+  PORT: "3001"
+  HOST: 0.0.0.0
+  LOG_LEVEL: info
+  TZ_APP: America/Recife
+  # O boot RECUSA `*` e recusa localhost com NODE_ENV=production. Ver
+  # src/config/env.ts.
+  CORS_ORIGIN: https://portal-gd.example.com
+  # `erp` desde 14/09/2026: o ErpAuthProvider existe e é o caminho real de
+  # login. Com `mock`, quem autentica é `usuario.senha_hash` -- e como o banco
+  # de produção nasce SEM SEED, ninguém conseguiria entrar. O boot passa a
+  # exigir ERP_AUTH_URL e as três variáveis do Oracle, todas no secret.
+  AUTH_PROVIDER: erp
+  # NUNCA `true` aqui: o boot morre com NODE_ENV=production e esta flag ligada.
+  AUTH_DEV_BYPASS: "false"
+  # ─────────────────────────────────────────────────────────────────────────
+  # O COOKIE DE SESSÃO SÓ TRAFEGA EM HTTPS.
+  #
+  # Faltava, e a ausência era o pior valor possível: sem a variável, o padrão
+  # do schema é `false`, e `gd_sessao` mais o `gd_refresh` de 7 dias iriam sem
+  # a marca `Secure` num host com `tls: true`. Qualquer requisição em `http://`
+  # para este endereço entregaria os dois em texto claro na rede.
+  #
+  # O boot agora RECUSA produção sem isto — a linha não pode sumir de novo sem
+  # o deploy falhar alto. Ver src/config/env.ts.
+  # ─────────────────────────────────────────────────────────────────────────
+  COOKIE_SECURE: "true"
+  # ───────────────────────────────────────────────────────────────────────────
+  # O TETO DO NODE, e sem ele subir a memória do container não resolve.
+  #
+  # Não havia `NODE_OPTIONS` nenhum até 18/09/2026, e é metade da causa do
+  # OOMKilled: sem limite explícito, o V8 dimensiona o heap pela memória que
+  # enxerga e **cresce além do limite do cgroup**. O container é morto pelo
+  # sistema antes de o Node concluir que precisa coletar lixo.
+  #
+  # O sintoma disso é traiçoeiro: só aumentar `limits.memoria` empurra o
+  # problema para um número maior, e a carga volta a morrer semanas depois,
+  # quando o movimento crescer.
+  #
+  # 768 dentro de 1Gi deixa ~25% para o que vive fora do heap do V8: buffers do
+  # driver do Oracle, o próprio runtime, e as pilhas nativas.
+  # ───────────────────────────────────────────────────────────────────────────
+  NODE_OPTIONS: "--max-old-space-size=768"
+  ORACLE_MAX_ROWS: "50000"
+  ORACLE_TIMEOUT_S: "60"
+  # 20 minutos, só para as consultas de indicador. Ver OpcoesConsulta em
+  # src/lib/oracle.ts.
+  ORACLE_TIMEOUT_CARGA_S: "1200"
+  ORACLE_FILA_TIMEOUT_S: "30"
+  ORACLE_POOL_MAX: "4"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SEGREDOS — nada aqui, nada no Git.
+#
+# O Secret `portal-gd-backend-creds` é criado pelo DevOps e montado como
+# variáveis de ambiente. Chaves esperadas:
+#
+#   DATABASE_URL            Postgres da aplicação
+#   JWT_SECRET              ≥ 32 caracteres; o boot recusa menor
+#   INGEST_TOKEN            ≥ 32 caracteres; o n8n manda em X-Ingest-Token
+#   ORACLE_USER             usuário de LEITURA, não nominal
+#   ORACLE_PASSWORD
+#   ORACLE_CONNECT_STRING
+#   ERP_AUTH_URL            quando AUTH_PROVIDER=erp
+#   POWER_AUTOMATE_VENDAS   gatilho do dataset de Vendas
+#   POWER_AUTOMATE_NPS      gatilho do dataset de NPS
+#
+# SÃO NOVE, e eram SETE até 15/09/2026. As duas do Power Automate faltavam nesta
+# lista, e a lista é o que o time de infra lê: o secret nasceria incompleto.
+#
+# Elas entraram quando o portal passou a AGENDAR Vendas e NPS sozinho -- antes
+# quem consultava o Power BI era o n8n, e o portal não precisava do endereço.
+# Agora precisa, e são segredo: a URL carrega assinatura, e quem a tiver executa
+# consulta arbitrária no Power BI da empresa.
+#
+# O boot agora recusa produção sem as duas, então esta lista não pode voltar a
+# ficar para trás sem o deploy falhar alto. Ver src/config/env.ts.
+#
+# Ver `credenciais-seguras.md` da estação 2 da esteira.
+# ─────────────────────────────────────────────────────────────────────────────
+secret:
+  nome: portal-gd-backend-creds
+
+# ─────────────────────────────────────────────────────────────────────────────
+# A CA INTERNA — SEM ELA NINGUÉM FAZ LOGIN.
+#
+# A API de login das filiais (`login-api.example.*`) tem certificado assinado
+# pela CA interna da empresa. O navegador confia porque lê a loja do sistema
+# operacional; o Node, dentro do container, não tem essa loja: a imagem
+# `node:24-alpine` traz zero certificados internos.
+#
+# Medido em 15/09/2026, com um handshake a partir da própria imagem:
+#   "unable to verify the first certificate; if the root CA is installed
+#    locally, try running Node.js with --use-system-ca"
+#
+# O sintoma em produção é o pior possível: o portal sobe, as sondas respondem
+# verde, e TODO login falha. A mensagem do portal ao menos diz que não é
+# credencial inválida -- ver src/modules/auth/provider.ts.
+#
+# POR QUE MONTAR E NÃO EMBUTIR NA IMAGEM: o certificado é da empresa. Embutido,
+# ele viaja no registry, e trocar a CA exigiria reconstruir e reimplantar.
+# Montado, o time de infra troca o arquivo e reinicia.
+#
+# LIGADO POR PADRÃO, de propósito: desligado, o esquecimento se paga com o
+# portal no ar e ninguém entrando. Ligado com o ConfigMap faltando, o pod nem
+# inicia -- falha alta, na hora do deploy, com quem subiu ainda olhando.
+#
+# Se o time de infra preferir Secret em vez de ConfigMap, é uma linha no
+# `deployment.yaml`; o conteúdo não é sigiloso (certificado público de CA).
+# ─────────────────────────────────────────────────────────────────────────────
+caInterna:
+  habilitado: true
+  # ConfigMap com o certificado da CA. CRIADO PELO TIME DE INFRA — não nasce
+  # deste chart, porque o certificado não está (e não deve estar) no Git.
+  configMap: ca-interna-corporativa
+  # A chave dentro do ConfigMap, que vira o nome do arquivo montado.
+  chave: ca.crt
+  # Onde o arquivo aparece dentro do container. O `NODE_EXTRA_CA_CERTS` é
+  # montado a partir daqui pelo `deployment.yaml` — não precisa repetir a
+  # variável no bloco `env` acima, e repetir criaria duas fontes de verdade.
+  caminho: /etc/ssl/ca-interna

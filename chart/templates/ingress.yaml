@@ -1,0 +1,34 @@
+{{- if .Values.ingress.habilitado }}
+{{/*
+  O Ingress do portal.
+
+  O TLS É O QUE SUSTENTA `COOKIE_SECURE=true`: o cookie de sessão leva a marca
+  `Secure` e o navegador só o envia em HTTPS. Desligar `ingress.tls` sem tirar
+  a marca deixaria o portal sem sessão nenhuma -- e o sintoma seria "não
+  consigo entrar", longe da causa.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.nome }}
+  labels:
+    app: {{ .Values.nome }}
+spec:
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.nome }}
+                port:
+                  name: http
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ .Values.nome }}-tls
+  {{- end }}
+{{- end }}

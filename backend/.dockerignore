@@ -1,0 +1,23 @@
+# O que NÃO entra no contexto de build.
+#
+# Além de deixar o build mais rápido, isto é uma trava de segurança: sem a
+# primeira linha, um `.env` presente na pasta viraria camada da imagem — com a
+# senha do Oracle e a URL do Postgres dentro, legíveis por qualquer um que
+# baixe a imagem do registry.
+.env
+.env.*
+!.env.example
+
+node_modules
+dist
+.pgdata
+
+# Saída de teste e de ferramenta: nada disso serve dentro da imagem.
+coverage
+*.log
+*.tsbuildinfo
+
+# Nem os testes, nem a config do editor.
+tests
+.vscode
+.idea

@@ -1,0 +1,15 @@
+# Dependencias
+node_modules/
+
+# Build
+dist/
+*.tsbuildinfo
+
+# Ambiente — nunca versionar. O .env.example, quando existir, vai versionado.
+.env
+.env.*
+!.env.example
+
+# Log e temporario
+*.log
+.DS_Store

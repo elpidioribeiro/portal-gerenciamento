@@ -1,0 +1,1930 @@
+/*
+ * O visual da reunião do N4, portado de `docs/demo-n4.html`.
+ *
+ * CSS próprio e não classes utilitárias soltas: os valores vêm do protótipo —
+ * 26px/800 no número, -0.7px de tracking, a sombra de 2px, o navy #001F3F —, e
+ * reescrevê-los como aproximações de Tailwind foi exatamente o que deixou a
+ * primeira versão parecendo outra tela. Aqui eles ficam num lugar só, com o
+ * nome que o protótipo usa, e conferíveis lado a lado.
+ */
+
+.n4 {
+  /*
+   * `width: 100%` para o container NÃO depender do conteúdo.
+   *
+   * Ele é item de um flex column (o `<main>`), e `mx-auto` põe margens laterais
+   * automáticas -- que em flexbox ABSORVEM o espaço livre e desligam o
+   * `stretch`. O item passa a ser shrink-to-fit: encolhe até o conteúdo e
+   * centraliza.
+   *
+   * O sintoma media 721px de conteúdo dentro de 1325px de tela, com vãos de
+   * 300px de cada lado. E era intermitente por natureza: a largura da PÁGINA
+   * passava a depender do que estava dentro dela, então mudar de semana ou
+   * abrir uma gerência mexia na margem.
+   *
+   * A tela do N4 tinha o mesmo defeito e não aparentava -- o conteúdo dela é
+   * naturalmente largo e chegava perto do `max-width` sozinho.
+   */
+  width: 100%;
+
+  --navy: #001f3f;
+  --navy-medio: #12406f;
+  --fundo: #f1f3f6;
+  --superficie: #ffffff;
+  --borda: #dfe4ec;
+  --borda-sutil: #edf0f5;
+  --texto: #0f1b2d;
+  --sec: #5b6b85;
+  --ter: #8592a8;
+  --brand-btn: #cf1030;
+  --ok-bg: #e8f6ee;
+  --ok-borda: #a9dfc1;
+  --ok-texto: #1b7a44;
+  --ok-ponto: #27ae60;
+  --cri-bg: #fcecea;
+  --cri-borda: #f3b3ab;
+  --cri-texto: #a32116;
+  --cri-ponto: #e74c3c;
+  /*
+   * ESCALAÇÃO — o laranja de "foi devolvida", usado pelo status REJEITADA.
+   *
+   * Os mesmos valores da paleta `escala` do Tailwind, que o `CardAcao` já usa
+   * para o mesmo status: a ação rejeitada aparece nas duas telas, e duas cores
+   * para o mesmo estado se leriam como dois estados.
+   */
+  --esc-bg: #fff1eb;
+  --esc-borda: #ffcdb6;
+  --esc-texto: #c4501b;
+  --ris-bg: #fdf2de;
+  --ris-borda: #f3d08a;
+  --ris-texto: #8a5a05;
+  /*
+   * "EM ANDAMENTO" -- azul, e não verde.
+   *
+   * Faltavam neste arquivo: o `reuniao-n3.css` os tinha porque era lá que
+   * ficava o bloco de ações, e ele veio para cá em 09/09/2026 (§7.61). Os
+   * MESMOS valores do N3, e não valores novos: são a mesma linguagem em duas
+   * telas, e um "em andamento" de tom diferente em cada uma se leria como dois
+   * estados.
+   *
+   * Andamento não é sucesso: verde diria que a ação resolveu, quando ela só
+   * está em pé.
+   */
+  --and-bg: #eff3f8;
+  --and-borda: #d2deec;
+  --and-texto: #12406f;
+
+  color: var(--texto);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+/* ── Cabeçalho da página ─────────────────────────────────────────────────── */
+.n4-olho {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ter);
+}
+.n4-h1 {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  margin: 2px 0 4px;
+}
+.n4-sub {
+  font-size: 13px;
+  color: var(--sec);
+}
+
+.n4-semanas {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.n4-semanas button {
+  height: 34px;
+  min-width: 38px;
+  border-radius: 9px;
+  border: 1px solid var(--borda);
+  background: var(--superficie);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--sec);
+  cursor: pointer;
+}
+.n4-semanas button:hover:not(:disabled) {
+  border-color: #c7d6ea;
+}
+.n4-semanas button.on {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+/* Semana futura: visível, para dar o ciclo, e não clicável. */
+.n4-semanas button:disabled {
+  color: #a9b4c6;
+  background: transparent;
+  border-color: var(--borda-sutil);
+  cursor: not-allowed;
+}
+
+/* ── Compromisso ─────────────────────────────────────────────────────────── */
+.n4-compromisso {
+  border: 1px solid var(--borda);
+  border-left: 4px solid var(--navy);
+  border-radius: 12px;
+  background: var(--superficie);
+  box-shadow: 0 2px 6px rgba(15, 15, 15, 0.05);
+  padding: 14px 20px;
+}
+.n4-compromisso summary {
+  cursor: pointer;
+  list-style: none;
+}
+.n4-compromisso summary::-webkit-details-marker {
+  display: none;
+}
+
+/* ── A linha da área ─────────────────────────────────────────────────────── */
+.n4-linha {
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+  background: var(--superficie);
+  box-shadow: 0 2px 6px rgba(15, 15, 15, 0.05);
+  overflow: hidden;
+}
+/*
+  A tarja agora é farol e vem INLINE, de `tarjaDoFarol` -- verde, vermelha ou
+  cinza, as três num lugar só. A regra que ficava aqui pintava apenas o
+  vermelho do alerta, e por isso a linha em dia não tinha tarja: ausencia
+  significava "está bom" OU "sem meta", que são coisas diferentes.
+
+  A classe `.alerta` saiu junto do JSX: era o ÚNICO uso dela neste arquivo, e
+  classe sem regra é pior que classe nenhuma -- quem for mexer procura o CSS
+  que a estiliza e não acha. O mesmo valeu no N3.
+*/
+.n4-linha.aberta {
+  border-color: var(--navy);
+  box-shadow: 0 8px 24px rgba(0, 31, 63, 0.13);
+}
+
+.n4-cabeca {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  /* Mesmo respiro do `.n3-cabeca`: as duas telas sao a mesma linguagem, e
+     densidades diferentes fariam a troca de N4 para N3 parecer troca de
+     produto. */
+  gap: 24px;
+  padding: 20px 24px;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+.n4-cabeca:hover {
+  background: #f7f9fc;
+}
+.n4-nome {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+.n4-sup {
+  font-size: 12px;
+  color: var(--ter);
+  margin-top: 2px;
+}
+/* A linha da área não abre mais (§7.29) — a grade que veio depois (§7.59) fica
+   sempre visível, embaixo, e não atrás de um clique. */
+.n4-cabeca.estatica {
+  cursor: default;
+}
+
+/* ── As ações abertas da gerência ────────────────────────────────────────── */
+/*
+ * "O que já está sendo feito" (§7.61). Portado do `reuniao-n3.css`, onde o
+ * bloco morava antes de o cartão de gerência virar link para esta tela.
+ *
+ * Mesmos valores do original -- 13px de respiro, o filete de cima, o hover
+ * `#f7f9fc` --, porque as duas telas são a mesma linguagem e o bloco é o mesmo.
+ * O que ganhou foi o `text-decoration: none` e a seta: aqui a linha é LINK para
+ * a ação, e lá era uma linha morta.
+ */
+.n4-acao {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border-top: 1px solid var(--borda-sutil);
+  padding: 13px 18px;
+  text-align: left;
+  width: 100%;
+  color: inherit;
+  /*
+   * O DEFEITO DE §7.59, que não se compila: sem isto o navegador sublinha o
+   * título, os chips e a trilha inteira -- a linha toda riscada. Aconteceu no
+   * cartão de gerência do N3 quando ele virou `<a>`.
+   */
+  text-decoration: none;
+}
+.n4-acao:hover {
+  background: #f7f9fc;
+}
+.n4-acao-corpo {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex-grow: 1;
+  /* `min-width: 0` para o título longo QUEBRAR em vez de esticar a linha: sem
+     ele um flex item não encolhe abaixo do conteúdo, e a seta era empurrada
+     para fora do cartão. */
+  min-width: 0;
+}
+.n4-acao-t {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.n4-acao-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.n4-acao-cod {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--navy-medio);
+}
+.n4-acao-quem {
+  font-size: 12px;
+  color: var(--ter);
+}
+/* A seta de "ir para", como no cartão de gerência do N3. `flex-shrink: 0` para
+   ela não ser a primeira a ceder quando a linha aperta. */
+.n4-acao-ir {
+  flex-shrink: 0;
+  font-size: 16px;
+  color: #a9b4c6;
+}
+.n4-acao:hover .n4-acao-ir {
+  color: var(--navy);
+}
+
+/*
+ * A TRILHA: por onde a ação passou, com o tempo em cada nível.
+ *
+ * É o que justifica o bloco existir. A pergunta do GD -- *o que foi tentado e
+ * por que não resolveu* -- verifica se a cadeia de ajuda funcionou, e uma lista
+ * de títulos sem a trilha diria que existem ações, não se elas estão andando.
+ */
+.n4-trilha {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  border-radius: 7px;
+  background: #f4f7fb;
+  padding: 6px 9px;
+}
+.n4-trilha-seta {
+  font-size: 11px;
+  color: var(--ter);
+}
+.n4-passo {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.n4-passo b {
+  display: inline-flex;
+  border-radius: 4px;
+  background: #e1e8f2;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--navy-medio);
+}
+/* O nível ATUAL em negativo: a trilha é lida da esquerda para a direita e o que
+   importa é onde a ação está agora, não por onde andou. */
+.n4-passo.aqui b {
+  background: var(--navy-medio);
+  color: #fff;
+}
+.n4-passo span {
+  font-size: 11px;
+  color: var(--sec);
+}
+.n4-passo i {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--ter);
+}
+
+/* ── O bloco de uma variável ─────────────────────────────────────────────── */
+/* Largura FIXA, não mínima.
+   Com `min-width` cada bloco crescia com o próprio texto -- "1 sem cota fora
+   da conta" é mais largo que "1 de 1 vendedores" --, e as colunas de uma área
+   caíam em posições diferentes das da área de baixo. A tela é lida na vertical,
+   comparando área com área: número desalinhado obriga a procurar cada um. */
+.n4-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* 196px cabia "R$ 33,95 mi de R$ 31,54 mi" e nao cabe
+     "VENDAS R$ 33,95 mi | META R$ 31,54 mi", que mede ~240px: a composicao
+     quebrava em duas linhas e desalinhava a barra de cada area. Continua FIXA,
+     que e' o que mantem as colunas alinhadas de area para area. */
+  flex: 0 0 248px;
+  width: 248px;
+}
+.n4-kpi-n {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ter);
+}
+.n4-kpi-r {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.n4-kpi-v {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.7px;
+  line-height: 1;
+}
+.n4-kpi-m {
+  font-size: 11px;
+  color: var(--ter);
+}
+.n4-kpi-c {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sec);
+}
+
+/* "Vendas" e "Meta" na composição: rótulo, não valor. Par do `.n3-comp-rot`.
+   Menor e mais claro para o olho pegar os dois VALORES primeiro e usar os
+   rótulos só para saber qual é qual. */
+.n4-comp-rot {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ter);
+  margin-right: 1px;
+}
+
+/* A régua entre "Vendas x" e "Meta y". Par do `.n3-comp-sep`. */
+.n4-comp-sep {
+  display: inline-block;
+  width: 1px;
+  height: 11px;
+  background: var(--borda);
+  margin: 0 10px;
+  vertical-align: -1px;
+}
+.n4-kpi-nota {
+  font-size: 11px;
+  color: var(--ter);
+}
+.n4-ok {
+  color: var(--ok-texto);
+}
+.n4-ruim {
+  color: var(--cri-texto);
+}
+.n4-vazio {
+  color: var(--ter);
+}
+
+/* ── Selo ────────────────────────────────────────────────────────────────── */
+/* Também de largura fixa, e alinhado à direita: é o último da linha, e sem
+   isso ele acompanhava a largura do texto ("Na meta" x "Fora da meta") e
+   nenhuma borda direita batia com a de cima. */
+.n4-selo {
+  flex: 0 0 116px;
+  display: flex;
+  justify-content: flex-end;
+}
+.n4-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.n4-chip.ok {
+  background: var(--ok-bg);
+  border-color: var(--ok-borda);
+  color: var(--ok-texto);
+}
+.n4-chip.ruim {
+  background: var(--cri-bg);
+  border-color: var(--cri-borda);
+  color: var(--cri-texto);
+}
+.n4-chip.sem {
+  background: transparent;
+  border-color: var(--borda);
+  color: var(--ter);
+  font-weight: 600;
+}
+.n4-chip.aviso {
+  background: var(--ris-bg);
+  border-color: var(--ris-borda);
+  color: var(--ris-texto);
+}
+.n4-ponto {
+  height: 7px;
+  width: 7px;
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+
+/* ── Corpo aberto ────────────────────────────────────────────────────────── */
+.n4-corpo {
+  border-top: 1px solid var(--borda-sutil);
+  background: #fbfcfe;
+  padding: 18px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.n4-cartao {
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  background: var(--superficie);
+  overflow: hidden;
+}
+/*
+  A MESMA grade, dentro do cartão da área (§7.59).
+
+  Sem borda nem raio próprios: `.n4-linha` já é a moldura, e uma caixa dentro
+  da outra dá duas bordas coladas e dois raios que não coincidem. O que separa
+  é o filete de cima e o fundo levemente rebaixado -- o mesmo par que `.n4-kpi`
+  usa para dizer "isto é o miolo daquela linha", e não um cartão novo.
+*/
+.n4-grade-nua {
+  border-top: 1px solid var(--borda-sutil);
+  background: #fbfcfe;
+}
+/*
+  O botão que abre os pontos de causa. FECHADO por padrão.
+
+  Linha inteira, e não um link no canto: o alvo de clique é a faixa toda, que é
+  o que se acerta de primeira numa reunião em pé, em frente a uma tela.
+
+  EVIDENTE, e não discreto (pedido do analista, 10/09/2026). Ele era um rótulo
+  cinza de peso 600 com uma setinha: lia-se como legenda da linha acima, não
+  como o lugar onde a reunião trabalha. É o ÚNICO gesto de escrita desta tela --
+  o resto é leitura --, e estava desenhado com menos ênfase que o texto ao lado.
+
+  Três mudanças, e nenhuma delas é cor nova: tinta principal em peso 700 (era
+  `--sec` em 600), a seta dentro de uma caixinha com borda -- que é o que diz
+  "isto abre" sem palavra nenhuma -- e o fundo levemente rebaixado, para a faixa
+  ser um degrau e não a continuação do cartão.
+*/
+.n4-pontos-abrir {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 18px;
+  background: #f4f7fc;
+  border: 0;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--texto);
+  text-align: left;
+}
+.n4-pontos-abrir:hover {
+  background: #e9f0fa;
+}
+.n4-pontos-abrir:hover .n4-pontos-chevron {
+  border-color: var(--navy-medio);
+  color: var(--navy-medio);
+}
+/* A borda de foco do teclado por dentro: a faixa encosta na borda do cartão. */
+.n4-pontos-abrir:focus-visible {
+  outline: 2px solid var(--navy-medio);
+  outline-offset: -2px;
+}
+/*
+  O NOME DA VARIÁVEL no botão "Pontos de causa".
+
+  Pastilha e não texto solto: ela diz que aquilo é um RÓTULO do botão, e não
+  a segunda metade do nome dele -- "Pontos de causa Performance Vendedor"
+  corrido se leria como um nome comprido.
+
+  Peso normal contra o 600 do botão: quem lê busca primeiro "Pontos de causa",
+  que é a ação; a variável é a resposta de "de quê?", e ela vem depois. Com o
+  mesmo peso as duas competiriam.
+*/
+.n4-pontos-var {
+  border: 1px solid var(--borda);
+  border-radius: 999px;
+  background: var(--superficie);
+  padding: 2px 9px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--sec);
+  white-space: nowrap;
+}
+
+/*
+  A SETA DENTRO DE UMA CAIXINHA.
+
+  Solta, ela era um marcador de lista -- e lista não se clica. Com borda e fundo
+  branco ela vira um controle de 22px, do tamanho de alvo de dedo, e diz que a
+  faixa abre. Continua com LARGURA FIXA: sem ela o texto andava 3px ao abrir,
+  porque ▾ e ▸ têm larguras diferentes.
+
+  `flex: 0 0 auto` porque a faixa é flex e a caixinha não deve encolher quando o
+  nome da variável e a pendência disputam espaço.
+*/
+/*
+  O CHEVRON DO "VER PONTOS DE CAUSA".
+
+  Aponta para BAIXO fechado e gira 180 graus ao abrir -- a seta descreve onde o
+  conteudo aparece, que e' logo abaixo do cartao. Antes era `▸`/`▾`, o triangulo
+  de arvore de arquivos: aponta para o LADO, e do lado nao acontece nada.
+
+  A transicao existe para LIGAR os dois estados. Sem ela o icone troca de
+  posicao num quadro so', e quem clicou nao ve que foi o proprio clique que o
+  virou -- o giro e' o que transforma duas imagens em um movimento.
+
+  `prefers-reduced-motion` desliga o giro e mantem o resultado: quem pediu menos
+  movimento continua vendo a seta certa em cada estado.
+*/
+.n4-pontos-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  background: var(--superficie);
+  line-height: 1;
+  color: var(--sec);
+  transition: transform 160ms ease;
+}
+.n4-pontos-abrir.aberta .n4-pontos-chevron {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .n4-pontos-chevron {
+    transition: none;
+  }
+}
+/*
+  A pendência não gravada, visível com a grade FECHADA.
+
+  No vermelho CRÍTICO do arquivo (`--cri-*`), e não num `#f00` novo: é a mesma
+  paleta do selo "fora da meta" logo acima, e um segundo vermelho na mesma tela
+  se lê como um segundo significado.
+
+  Vermelho de propósito: é a única coisa nesta tela que se perde se a reunião
+  acabar sem clicar em Confirmar.
+*/
+.n4-pontos-pend {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cri-texto);
+  background: var(--cri-bg);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+.n4-titulo-bloco {
+  padding: 14px 18px 10px;
+}
+.n4-titulo-bloco h3 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0;
+}
+.n4-titulo-bloco p {
+  font-size: 12px;
+  color: var(--ter);
+  margin: 2px 0 0;
+}
+
+.n4-seg {
+  display: inline-flex;
+  gap: 4px;
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  background: var(--superficie);
+  padding: 4px;
+}
+.n4-seg button {
+  border: 0;
+  border-radius: 7px;
+  padding: 9px 15px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--sec);
+  background: none;
+  cursor: pointer;
+}
+.n4-seg button:hover {
+  background: #f2f6fc;
+}
+.n4-seg button.on {
+  background: var(--navy);
+  color: #fff;
+}
+
+/*
+ * O RÓTULO EM CIMA DO SELETOR, encostado na BORDA ESQUERDA dele.
+ *
+ * Passou por três formas em duas horas, e as duas descartadas foram pedido do
+ * analista:
+ *
+ *   em cima, à direita   alinhava com a borda direita do seletor -- longe do
+ *                        nome que ele qualifica, quase na margem da tela
+ *   ao lado, na mesma    lê como frase, mas empurra o par contra o título do
+ *   linha                bloco: a 700px o cabeçalho já quebrava em 95px
+ *   em cima, à esquerda  ← aqui
+ *
+ * `align-items: flex-start` alinha o rótulo com a PRIMEIRA palavra do seletor
+ * ("Performance Vendedor"), que é o que ele qualifica -- lido de cima para
+ * baixo, "contando causas de" cai exatamente sobre a resposta.
+ *
+ * A caixa fica com a largura do seletor, e é isso que faz o par caber: ela mede
+ * os dois nomes, não os dois nomes MAIS a frase.
+ */
+.n4-seg-caixa {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+.n4-seg-rot {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ter);
+  white-space: nowrap;
+}
+
+/* ── Grade de marcação ───────────────────────────────────────────────────── */
+.n4-grade {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.n4-grade th {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ter);
+  padding: 8px 10px;
+}
+.n4-grade th.col-on {
+  color: var(--navy);
+  background: #f2f6fc;
+}
+.n4-grade td {
+  padding: 5px 4px;
+  text-align: center;
+  border-top: 1px solid var(--borda-sutil);
+}
+.n4-grade td.esq {
+  text-align: left;
+  padding: 10px 18px;
+  font-weight: 600;
+}
+.n4-grade td.col-on {
+  background: #f2f6fc;
+}
+.n4-celula {
+  min-width: 46px;
+  border-radius: 8px;
+  border: 1px solid var(--borda);
+  background: var(--superficie);
+  padding: 8px 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--navy-medio);
+  cursor: pointer;
+}
+.n4-celula.vazia {
+  border-style: dashed;
+  color: #c7d6ea;
+}
+.n4-celula:hover {
+  border-color: var(--navy);
+}
+.n4-celula.fechada {
+  border: 0;
+  background: none;
+  cursor: default;
+  color: var(--sec);
+}
+.n4-menos {
+  border: 0;
+  background: none;
+  color: #c7d6ea;
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.n4-menos:hover {
+  color: var(--brand-btn);
+}
+.n4-ciclo {
+  font-weight: 800;
+  color: var(--texto);
+}
+
+/* ── Pareto ──────────────────────────────────────────────────────────────── */
+.n4-barra-trilha {
+  height: 22px;
+  flex-grow: 1;
+  border-radius: 5px;
+  background: var(--borda-sutil);
+  overflow: hidden;
+}
+.n4-barra {
+  height: 100%;
+  border-radius: 5px;
+  background: var(--navy-medio);
+}
+.n4-barra.vital {
+  background: var(--brand-btn);
+}
+.n4-nota {
+  display: flex;
+  gap: 8px;
+  border-top: 1px solid var(--borda-sutil);
+  padding: 12px 18px;
+  font-size: 12px;
+  color: var(--sec);
+}
+
+/* ── Rodapé da gerência ──────────────────────────────────────────────────── */
+/*
+ * O resumo da gerência — no TOPO desde 31/08. Chamava-se `n4-rodape`, que era
+ * o que ele era: nasceu no fim da página e ficou lá enquanto tudo acima dele
+ * mudava de lugar. O nome seguiu o lugar.
+ */
+/* ── O resumo da gerência ─────────────────────────────────────────────────
+ *
+ * Três cartões numa caixa só, no mesmo padrão do cabeçalho do N3: o que falta
+ * em reais, e os dois indicadores com barra e delta.
+ *
+ * Era uma faixa `flex` com o nome à esquerda e dois KPIs à direita. Dois
+ * defeitos vinham juntos: o nome levava `flex: 1`, então toda a largura extra
+ * do monitor virava vão morto no meio; e a borda TRACEJADA dava ao resumo cara
+ * de rascunho, ao lado dos cartões sólidos das áreas logo abaixo.
+ *
+ * As réguas separam sem encaixotar -- três cartões com borda própria seriam
+ * três caixas competindo, e isto é um bloco só.
+ */
+.n4-topo {
+  display: grid;
+  /*
+    COLUNAS IGUAIS. A primeira era mais larga (`minmax(280px, 1.1fr)`) porque
+    o cartão de projeção ficava nela: rótulo longo, valor em reais e os dois
+    chips de área pediam mais espaço que um percentual.
+
+    Com Vendas na meta passando a ser o primeiro, o slot largo deixou de casar
+    com o conteúdo largo -- sobrava vazio no primeiro e apertava o do meio.
+    Iguais, cada cartão recebe o mesmo terço e os chips seguem quebrando em
+    duas linhas quando precisam (`flex-wrap` em `.chips`).
+
+    `auto-fit` e não três colunas fixas: no N4 os cartões de Vendas e Vendedor
+    são condicionais, e um template de três deixaria coluna vazia quando um
+    deles não vem.
+  */
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin-bottom: 16px;
+  border: 1px solid var(--borda);
+  border-radius: 14px;
+  background: var(--superficie);
+  overflow: hidden;
+}
+/*
+  "Ver histórico", DENTRO do cartão do indicador -- um por cartão, cada um
+  levando ao seu gráfico.
+
+  `margin-top: auto` prende o link ao rodapé do cartão: `.n4-topo-card` é flex
+  column, e sem isto o link ficaria colado no conteúdo. Os dois cartões têm
+  alturas de conteúdo diferentes -- Vendas leva os dois chips de área embaixo,
+  Vendedor não --, e é o `auto` que faz os dois links caírem na mesma linha.
+
+  `align-self: flex-start` para a área de clique medir o texto, e não a largura
+  do cartão: um alvo de 248px de largura e 12px de altura é fácil de acertar sem
+  querer, ao mirar a faísca logo acima.
+
+  Sem sublinhado e em 11px: é uma saída, não a leitura principal do cartão. O
+  chevron diz que abre algo.
+*/
+.n4-hist-link {
+  margin-top: auto;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 4px 5px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--navy-medio);
+}
+.n4-hist-link:hover {
+  background: #f2f6fb;
+  color: var(--navy);
+}
+
+.n4-topo-card {
+  display: flex;
+  flex-direction: column;
+  /* Mesmo respiro do `.n3-topo-card`: as duas telas sao a mesma linguagem, e
+     o N4 tinha ficado com 16/20 enquanto o N3 foi para 22/24. */
+  gap: 10px;
+  padding: 22px 24px;
+  min-width: 0;
+  border-left: 1px solid var(--borda-sutil);
+}
+.n4-topo-card:first-child {
+  border-left: 0;
+}
+.n4-topo-card.destaque {
+  background: #fbfcfe;
+}
+.n4-topo-linha {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.n4-topo-rot {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ter);
+}
+.n4-topo-v {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1.05;
+  color: var(--texto);
+  font-variant-numeric: tabular-nums;
+}
+
+/* O farol NO NÚMERO do consolidado, e não só no trilho abaixo dele.
+   Seletor COMPOSTO por necessidade: `.n4-ok` e companhia estão lá em cima
+   (linha ~217), `.n4-topo-v` declara `color` depois delas, e entre classes
+   soltas de mesma especificidade quem vence é a ordem no arquivo -- o
+   número sairia preto. Com as duas classes juntas o farol ganha
+   independentemente de onde a regra esteja. */
+.n4-topo-v.n4-ok {
+  color: var(--ok-texto);
+}
+.n4-topo-v.n4-ruim {
+  color: var(--cri-texto);
+}
+/* Cinza: sem meta ou sem patamar (§7.37) não há o que pintar. */
+.n4-topo-v.n4-vazio {
+  color: var(--ter);
+}
+
+.n4-topo-c {
+  font-size: 12px;
+  color: var(--sec);
+}
+/*
+  A FAIXA DA PROJEÇÃO: rótulo à esquerda, percentual à direita.
+
+  Forma dada pelo analista em 10/09/2026. O filete de cima separa o que é outra
+  pergunta: as duas linhas acima dizem QUANTO em reais e de que LADO da meta;
+  esta diz o tamanho RELATIVO. Como texto corrido as três viravam um parágrafo.
+
+  `baseline`, e não `center`: o rótulo tem 10px e o valor 13px, e centrados na
+  caixa as duas bases ficam fora de linha -- o que se nota justamente porque
+  estão nas pontas da mesma faixa.
+
+  `margin-top: 2px` contra o `gap: 10px` do cartão: com os 10px cheios mais os
+  10 de `padding-top`, o filete afastava demais e a faixa lia como um segundo
+  cartão dentro do primeiro.
+*/
+.n4-topo-proj {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--borda-sutil);
+}
+/* O percentual: peso de número, tamanho de legenda. A cor vem do farol
+   (`.n4-ok` / `.n4-ruim`), como no valor grande e na linha do meio. */
+.n4-topo-proj-v {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.1px;
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* O número e a régua, colados. Sem este invólucro o `space-between` da
+   `.n4-topo-linha` joga a régua na borda oposta do cartão. Mesmo gap do
+   `.n4-kpi-r`, que faz o mesmo par nas linhas de área. */
+.n4-topo-par {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+/* A régua ao lado do percentual do topo -- "/ 100%". Par do `.n4-kpi-m`. */
+.n4-topo-m {
+  font-size: 11px;
+  color: var(--ter);
+}
+.n4-topo-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+}
+.n4-chip-mini {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.n4-chip-mini.ruim {
+  background: var(--cri-bg);
+  color: var(--cri-texto);
+}
+.n4-chip-mini.ok {
+  background: var(--ok-bg);
+  color: var(--ok-texto);
+}
+
+/* O número sozinho não tem escala: 92% e 104% parecem vizinhos escritos, e são
+   lados opostos da meta. */
+.n4-trilho {
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: #e9edf3;
+  overflow: hidden;
+}
+.n4-trilho-cheio {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.25s;
+}
+.n4-trilho-cheio.ok {
+  background: var(--ok-ponto);
+}
+/*
+  A FAIXA ÂMBAR SAIU, e o hex fica registrado aqui de propósito.
+
+  Era "quase lá" (>= 95% da meta). Vendas tem duas faixas -- quem decide isso
+  é `FAIXA_POR_INDICADOR` no servidor, que só dá faixa do meio a NPS e Perdas.
+  Mantida como classe fazia o número (binário, por `naMeta`) e a barra
+  discordarem: 97% saía com número vermelho e barra âmbar.
+
+  Não apago a regra porque NPS e Perdas vão precisar dela quando tiverem tela
+  de reunião -- e aí a faixa vem do SERVIDOR, junto do ponto, e não de um
+  limiar reescrito no cliente. O valor é #f0a020, o mesmo do dashboard.
+*/
+.n4-trilho-cheio.ruim {
+  background: var(--cri-ponto);
+}
+.n4-trilho-cheio.sem {
+  background: var(--ter);
+}
+
+.n4-delta {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ter);
+  font-variant-numeric: tabular-nums;
+}
+.n4-delta.sobe {
+  color: var(--ok-texto);
+}
+.n4-delta.desce {
+  color: var(--cri-texto);
+}
+
+.n4-select {
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--borda);
+  background: var(--superficie);
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--texto);
+}
+
+/* ── A barra de confirmação da grade ───────────────────────────────────────
+   Aparece só quando há rascunho. A grade conta em memória e grava de uma vez
+   (PLANO §7.21), então precisa DIZER que ainda não gravou -- sem isso a
+   reunião fecha a linha achando que marcou. */
+.n4-confirmar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--borda);
+  background: #FFF8E6;
+  font-size: 12px;
+  font-weight: 600;
+  color: #7A5A12;
+}
+.n4-confirmar > span { margin-right: auto; }
+.n4-btn-ok {
+  border: 0;
+  border-radius: 6px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 16px;
+  cursor: pointer;
+}
+.n4-btn-ok:disabled { opacity: .5; cursor: default; }
+.n4-btn-desfazer {
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--sec);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.n4-btn-desfazer:disabled { opacity: .5; cursor: default; }
+.n4-btn-ok:disabled { opacity: .5; cursor: default; }
+
+/*
+ * ADICIONAR PONTO DE CAUSA, no pé da grade.
+ *
+ * Filete em cima e fundo da própria grade: é o rodapé dela, não um cartão novo.
+ * Mesma lógica do `.n4-grade-nua` -- o que separa é o filete, e não uma borda.
+ */
+.n4-novo-ponto {
+  border-top: 1px solid var(--borda-sutil);
+  padding: 10px 18px;
+}
+/*
+ * O botão fechado é DISCRETO de propósito: contar ocorrência é o gesto de toda
+ * reunião, criar ponto acontece de vez em quando. Peso igual ao das células
+ * faria a lista de causas parecer um formulário.
+ */
+.n4-novo-ponto-abrir {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px dashed var(--borda);
+  border-radius: 8px;
+  background: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sec);
+  cursor: pointer;
+}
+/* Aqui o tracejado CABE: é o único botão da tela que cria linha nova, e o
+   tracejado é a convenção de "espaço por preencher". */
+.n4-novo-ponto-abrir:hover {
+  border-color: var(--navy-medio);
+  border-style: solid;
+  color: var(--navy);
+  background: #f4f7fc;
+}
+.n4-novo-ponto-abrir span {
+  font-size: 14px;
+  line-height: 1;
+}
+.n4-novo-ponto-forma {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/*
+ * O campo cresce até 420px: "Falta de produto - produto não localizado (Dep.
+ * 17)" mede 330px, e um campo mais curto que o nome que se digita esconde o
+ * começo da frase enquanto se escreve o fim.
+ */
+.n4-novo-ponto-campo {
+  flex: 1 1 260px;
+  max-width: 420px;
+  min-width: 0;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  padding: 7px 11px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--texto);
+  background: var(--superficie);
+}
+.n4-novo-ponto-campo:focus {
+  outline: 2px solid var(--navy-medio);
+  outline-offset: 1px;
+  border-color: var(--navy-medio);
+}
+.n4-novo-ponto-nota {
+  margin: 7px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ter);
+}
+.n4-novo-ponto-erro {
+  margin: 7px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cri-texto);
+}
+.n4-erro {
+  padding: 10px 18px;
+  border-top: 1px solid var(--borda);
+  font-size: 12px;
+  color: #B42318;
+}
+
+/* ── Abrir contramedida a partir do Pareto ─────────────────────────────────
+   O botão fica em CADA linha, e não um só no rodapé: a ação é sobre UMA
+   causa, e um botão solto obrigaria a escolher de novo o que a barra já
+   dizia. Discreto até o hover -- ele acompanha a leitura, não a interrompe. */
+.n4-btn-acao {
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--ter);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.n4-btn-acao:hover {
+  border-color: var(--borda);
+  background: #fff;
+  color: var(--navy);
+}
+
+/*
+ * "Onde atacar primeiro" — o Pareto da gerência, no TOPO e em largura cheia.
+ *
+ * Num quadro físico ele fica afixado: é o ESTADO da reunião, não um passo no
+ * fim. Abre a tela dizendo onde as coisas estão e muda na frente do grupo
+ * conforme as áreas são marcadas abaixo.
+ *
+ * Já esteve embaixo da lista (2.600px de rolagem para alcançá-lo) e numa coluna
+ * à direita, ao lado das ONZE áreas -- que era o erro: espremia a lista inteira
+ * em metade da largura para um gráfico que se consulta uma vez.
+ *
+ * Desde 09/09 (§7.59) as duas colunas aqui dentro são o SOMATÓRIO e o PARETO --
+ * as duas leituras do mesmo total, uma ao lado da outra: a matriz diz quanto, o
+ * Pareto diz qual primeiro. Nenhuma das duas se digita; o que se digita é a
+ * grade dentro de cada área, acima. Foi o inverso entre 31/08 e 09/09 (§7.29),
+ * quando a coluna da esquerda era a grade da gerência.
+ */
+.n4-bloco-causas {
+  /* Respiro real embaixo: sem ele o bloco encosta na primeira área e os dois
+     leem como uma coisa só. Estava em zero. */
+  margin-bottom: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+  background: #fbfcfe;
+  padding: 18px;
+  box-shadow: 0 2px 6px rgba(15, 15, 15, 0.05);
+}
+.n4-bloco-cabeca {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.n4-bloco-t {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+}
+.n4-bloco-s {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--sec);
+}
+/*
+ * A variável DENTRO do título de "Por que aconteceu".
+ *
+ * Não é um controle: é o nome do que está na matriz e no Pareto abaixo, para
+ * quem chegou aqui rolando não ter de lembrar qual lente escolheu. Peso e
+ * tamanho menores que o título -- é aposto, não segunda manchete.
+ */
+.n4-bloco-t-var {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--sec);
+  letter-spacing: 0;
+}
+.n4-bloco-t-var::before {
+  content: '· ';
+  color: var(--ter);
+}
+/* O aviso dentro da área, dizendo para onde a grade foi. */
+.n4-nota-area {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ter);
+}
+
+/* ── Responsivo ───────────────────────────────────────────────────────────
+   O quadro é lido de pé, em frente à tela, e às vezes num tablet. Abaixo de
+   900px o cabeçalho da área deixa de ser uma linha só: os KPIs quebram para
+   baixo do nome em vez de espremerem o número, que é o que a reunião lê. */
+@media (max-width: 900px) {
+  .n4-cabeca {
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+  .n4-kpi {
+    min-width: 140px;
+    flex: 1 1 140px;
+  }
+  /* O selo vai para a linha de baixo, alinhado à esquerda com o resto. */
+  .n4-selo-caixa {
+    width: auto;
+  }
+}
+
+@media (max-width: 620px) {
+  .n4 {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .n4-cabeca {
+    padding: 14px;
+    gap: 12px;
+  }
+  /* Dois KPIs lado a lado ficam com 4 dígitos espremidos; empilha. */
+  .n4-kpi {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .n4-kpi-v {
+    font-size: 22px;
+  }
+  .n4-bloco-causas {
+    padding: 14px;
+  }
+  .n4-bloco-cabeca {
+    align-items: flex-start;
+  }
+}
+
+/*
+ * O respiro do cabeçalho da lista de áreas até o primeiro cartão.
+ *
+ * Vem SOMADA a `.n4-bloco-cabeca` desde 09/09/2026, quando o seletor de
+ * variável subiu para esta linha (§7.59): a outra classe faz o arranjo
+ * horizontal, esta faz a distância vertical. Só margem, de propósito -- juntar
+ * as duas numa regra faria a linha do bloco de causas herdar um respiro que
+ * lá é dado pelo `gap` do `.n4-bloco-causas`.
+ */
+.n4-titulo-lista {
+  margin-bottom: 10px;
+}
+
+/*
+ * O CABEÇALHO DA LISTA VOLTOU A SER COMUM, e só o seletor gruda.
+ *
+ * Três tentativas de fixar a linha inteira foram recusadas -- branca quadrada,
+ * branca com cantos, cinza do fundo --, e a última queixa deu o diagnóstico:
+ * *"esse quadradão atrás tá muito esquisito"*. Não era a cor. Linha fixa de
+ * ponta a ponta é um retângulo opaco de 1288px cortando os cartões que sobem, e
+ * isso vale em branco, em cinza ou em qualquer outra tinta.
+ *
+ * O que fica na tela agora é `.n4-seg-solto`, uma peça de ~300px. Peça pequena
+ * não vira retângulo: vira objeto flutuante, que é o que ela é.
+ */
+.n4-titulo-lista-esq {
+  display: flex;
+  /* Base comum: os dois textos têm tamanhos diferentes (17 e 12), e centrados
+     pela caixa as bases ficam desencontradas por 2px. */
+  align-items: baseline;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+}
+.n4-titulo-lista-nota {
+  font-size: 12px;
+  color: var(--ter);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.n4-titulo-lista-nota::before {
+  content: '· ';
+  color: var(--borda);
+}
+
+/*
+ * A PEÇA DO SELETOR, solta no alto à direita.
+ *
+ * Fica alinhada com a coluna de conteúdo: `right` acompanha a margem que o
+ * container de 1320px deixa de cada lado, e nunca menos que os 16px de folga da
+ * própria coluna. Assim ela para exatamente onde o seletor do cabeçalho estava,
+ * e a troca de um pelo outro não mexe o olho de lugar.
+ *
+ * `top` desce a peça para logo abaixo da faixa da gerência, pelas duas alturas
+ * medidas em tempo de execução.
+ *
+ * `z-index: 19` fica abaixo do 20 da faixa: ao rolar até o fim, a peça passa por
+ * baixo dela, e não por cima.
+ */
+.n4-seg-solto {
+  position: fixed;
+  /*
+   * Soma as TRÊS: cabeçalho, faixa de identidade e faixa de aviso. A última vale
+   * zero quando não há aviso na tela -- é o caso comum --, e é por isso que o
+   * `FaixaAviso` apaga a variável ao desmontar.
+   */
+  top: calc(
+    var(--altura-cabecalho, 124px) + var(--altura-faixa-identidade, 57px) +
+      var(--altura-faixa-aviso, 0px) + 10px
+  );
+  right: max(16px, calc((100vw - 1320px) / 2 + 16px));
+  z-index: 19;
+  /* Contra o `width: 100%` de `.n4`, que a classe traz junto com as cores. */
+  width: auto;
+  max-width: calc(100vw - 32px);
+  padding: 8px 12px 10px;
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+  background: var(--superficie);
+  box-shadow: 0 6px 18px rgba(15, 27, 45, 0.14);
+}
+/* Na peça o rótulo centraliza: não há título à esquerda para alinhar com ele. */
+.n4-seg-solto .n4-seg-caixa {
+  align-items: center;
+  gap: 4px;
+}
+.n4-seg-solto .n4-seg {
+  padding: 3px;
+  gap: 3px;
+  border-radius: 9px;
+}
+.n4-seg-solto .n4-seg button {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+.n4-seg-solto .n4-seg-rot {
+  font-size: 9px;
+  letter-spacing: 0.09em;
+}
+
+/*
+ * CONTAR e PRIORIZAR, lado a lado.
+ *
+ * A grade recebe mais largura porque é onde se DIGITA e onde os nomes dos
+ * pontos de causa moram: "Falta de produto - produto não localizado (Dep. 17)"
+ * não sobrevive a uma coluna estreita, e é a frase que a reunião discute. O
+ * Pareto é leitura, e barra curta ainda é barra.
+ *
+ * `minmax(0, …)` nas duas: sem isso a grade, que tem tabela dentro, impõe a
+ * largura do próprio conteúdo e empurra o Pareto para fora do cartão.
+ */
+.n4-duo {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+/*
+ * Abaixo de 1100px empilha, e a GRADE vem primeiro: é onde se digita, e o
+ * Pareto sem contagem nenhuma é um retângulo vazio no topo da tela.
+ */
+@media (max-width: 1100px) {
+  .n4-duo {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+}
+
+/*
+ * A coluna do Pareto. Título próprio porque o cartão que envolve as duas
+ * colunas fala das duas ("Por que aconteceu"), e sem um rótulo aqui as barras
+ * ficam soltas ao lado da grade -- lidas como continuação dela.
+ */
+.n4-pareto-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.n4-col-t {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--navy);
+}
+
+/* Uma causa do Pareto: o nome inteiro em cima, a medida embaixo. */
+.n4-pareto-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.n4-pareto-nome {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--texto);
+}
+.n4-pareto-medida {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.n4-pareto-num {
+  flex-shrink: 0;
+  text-align: right;
+  color: var(--sec);
+  font-variant-numeric: tabular-nums;
+}
+.n4-pareto-num strong {
+  color: var(--texto);
+}
+
+/*
+ * "Ver todas" / "Ver resumo". Discreto de propósito: é uma saída, não um
+ * convite. A reunião acontece nas TRÊS DE CIMA, que desde 09/09/2026 são as
+ * três de pior desempenho (§7.59) -- se este botão parecesse a ação principal,
+ * o quadro voltaria a ter vinte linhas na prática.
+ */
+/*
+ * BORDA SÓLIDA E FUNDO BRANCO, e não tracejado sobre transparente.
+ *
+ * O tracejado é a convenção de "espaço por preencher" -- este arquivo já tinha
+ * pagado por isso uma vez, quando a regra da borda tracejada vazou para o
+ * percentual sem meta e todo número de vendedor apareceu com cara de campo
+ * vazio (ver `.n4-semana-vazia`). Aqui a peça É um botão, e três botões usam
+ * esta classe: abrir as outras áreas, contar as causas da variável seguinte e
+ * fechar o histórico. Todos ações de verdade.
+ */
+.n4-expandir {
+  margin: 12px 0 0;
+  padding: 11px 14px;
+  width: 100%;
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  background: var(--superficie);
+  color: var(--navy-medio);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.n4-expandir:hover {
+  background: #f2f6fc;
+  border-color: var(--navy-medio);
+  color: var(--navy);
+}
+.n4-expandir:focus-visible {
+  outline: 2px solid var(--navy-medio);
+  outline-offset: 2px;
+}
+
+/*
+ * Semana sem dado nenhum: uma frase, e não uma lista vazia com botão.
+ *
+ * Chamava-se `.n4-vazio` — o mesmo nome da COR do percentual sem resposta,
+ * trinta linhas acima. Duas regras sem relação disputando um nome, e a de baixo
+ * vencia: a borda tracejada e o padding daqui vazavam para dentro do número.
+ *
+ * O estrago era invisível na revisão e permanente na tela. Vendedor não tem
+ * meta de propósito (§7.37), então `naMeta` devolve null SEMPRE ali — e todo
+ * percentual de vendedor, no resumo e em cada linha de área, aparecia dentro
+ * de uma caixinha tracejada, com cara de campo por preencher.
+ */
+.n4-semana-vazia {
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px dashed var(--borda);
+  border-radius: 12px;
+  color: var(--sec);
+  font-size: 13px;
+}
+
+/*
+ * A grade rola na horizontal em vez de encolher a coluna do nome — nome de
+ * ponto de causa cortado não se lê, e é o que a reunião discute.
+ *
+ * SEM media query, de propósito. Estava dentro de uma, e por isso só valia em
+ * telas estreitas -- mas a grade também fica apertada num monitor largo, quando
+ * ela divide o cartão com o Pareto. Quem decide se rola é o espaço, não a
+ * largura da janela: `overflow-x: auto` não faz nada enquanto couber.
+ */
+.n4-grade-rolagem {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── A faixa da gerência ───────────────────────────────────────────────────
+ *
+ * O RECORTE, separado do conteúdo. Antes a gerência era um pedaço da linha de
+ * olho ("NOR · CONSTRUÇÃO") e o seletor dela morava no canto direito, ao lado
+ * das semanas -- duas coisas de naturezas diferentes no mesmo canto, e o nome
+ * da gerência lido como enfeite do nome da loja.
+ *
+ * A cor vem da GERÊNCIA, por variável, e não daqui: navy em Construção, azul em
+ * Não Construção. Nunca vermelho nem verde -- essas duas são exclusivas do
+ * farol dos indicadores. Ver `coresDaGerencia` em `lib/nomes.ts`.
+ */
+.n4-faixa {
+  /* Primeiro item da coluna, antes da faixa de aviso (`order: -1`) e do
+     conteúdo (`0`). Ver `.faixa-aviso` em `styles.css`. */
+  order: -2;
+  /*
+    FIXA embaixo do cabecalho global (10/09/2026).
+
+    `--altura-cabecalho` e' medida em `AppHeader` por `ResizeObserver`: as duas
+    barras dele tem `flex-wrap` e `min-h`, entao a altura muda com a largura e
+    com o conteudo. O fallback de 124px (72 + 52) so' vale no primeiro quadro,
+    antes do efeito rodar.
+
+    `z-index: 20` fica ABAIXO do 30 do cabecalho: as duas se sobrepoem por um
+    instante durante a rolagem, e a que tem de vencer e' a de navegacao.
+
+    O fundo era translucido (`--faixa-tinta` e' um rgba). Fixa, ele deixaria o
+    conteudo passar por tras: por isso o `--superficie` embaixo, na mesma
+    declaracao -- duas camadas, a cor da gerencia sobre o branco.
+  */
+  position: sticky;
+  top: var(--altura-cabecalho, 124px);
+  z-index: 20;
+  background: linear-gradient(var(--faixa-tinta), var(--faixa-tinta)), var(--superficie);
+  border-bottom: 2px solid var(--faixa-destaque);
+  /*
+   * `width: auto` porque a faixa também carrega a classe `.n4`, que fixa
+   * `width: 100%` — e largura fixa faz a margem negativa DESLOCAR o elemento
+   * sem alargá-lo. Media 1149 num `main` de 1213: sangrava para a esquerda e
+   * sobrava branco à direita.
+   */
+  width: auto;
+  /*
+   * ACIMA a faixa encosta (o `-mt` cancela o `pt` do `main`); ABAIXO ela
+   * respira. Chegou a ter `margin-bottom: -20px` e colou: a régua virava
+   * sublinhado do "NOR", e o recorte deixava de se ler como faixa separada.
+   */
+  margin-bottom: 6px;
+  /*
+   * Devolve o gutter que o `-mx-gutter` cancelou. Com ele a caixa interna
+   * começa exatamente onde o container do conteúdo começa -- e as duas, tendo
+   * o mesmo `max-width` e o mesmo `margin: auto`, ficam alinhadas em QUALQUER
+   * largura, inclusive acima de 1320px, onde ambas passam a centralizar.
+   */
+  padding: 0 32px;
+}
+
+/*
+ * O fundo sangra, o CONTEÚDO alinha.
+ *
+ * É o padrão de full-bleed: a faixa vai de ponta a ponta, mas o que está dentro
+ * dela usa o mesmo container do resto da tela. Sem isto, alinhar por padding
+ * funcionaria só até a largura em que o `max-width` do conteúdo passa a valer
+ * -- daí o conteúdo centraliza e a faixa continua colada à esquerda.
+ */
+.n4-faixa-conteudo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  /*
+    ALINHADO À ESQUERDA desde 12/09/2026.
+
+    Era `space-between` para pôr a identidade de um lado e o seletor do outro.
+    A identidade subiu para o cabeçalho, e sem ela o `space-between` não tinha
+    o que separar: o seletor ficava sozinho, colado na borda direita, com mil
+    pixels de vão à esquerda.
+  */
+  justify-content: flex-start;
+  gap: 32px;
+  margin: 0 auto;
+  max-width: 1320px;
+  padding: 14px 16px;
+}
+.n4-faixa-esq {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.n4-faixa-ponto {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--faixa-destaque);
+  flex: 0 0 auto;
+}
+.n4-faixa-rot {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #6b7488;
+}
+.n4-faixa-nome {
+  font-size: 18px;
+  font-weight: 800;
+  color: #16223d;
+  letter-spacing: -0.01em;
+}
+
+/*
+ * O seletor da faixa tem estilo PRÓPRIO, e não o `.n4-seg` das variáveis.
+ *
+ * Parecem iguais e não são: o `.n4-seg` é retangular e opaco, e mexer nele
+ * mudaria também as semanas e as variáveis, que dividem esta tela. Aqui a
+ * trilha é translúcida — deixa a tinta do setor aparecer por baixo — e as
+ * pontas são redondas.
+ */
+.n4-faixa-seg {
+  display: flex;
+  gap: 3px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(22, 34, 61, 0.1);
+  border-radius: 999px;
+  padding: 3px;
+}
+.n4-faixa-seg button {
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  color: #6b7488;
+}
+.n4-faixa-seg button.on {
+  background: #16223d;
+  color: #fff;
+}
+
+/* ── Como viemos até aqui: o histórico mensal ──────────────────────────────
+ *
+ * Barras e não linha: os meses são categorias discretas, e a linha sugeriria
+ * que existe algo entre março e abril. A linha é para dentro do mês, que é o
+ * que o gráfico da semana já faz.
+ */
+.n4-hist-cartao {
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+  background: var(--superficie);
+  box-shadow: 0 2px 6px rgba(15, 15, 15, 0.05);
+  padding: 20px 22px 16px;
+}
+.n4-hist-titulo {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+}
+.n4-hist-selo {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--borda);
+  border-radius: 999px;
+  background: var(--superficie);
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--sec);
+  white-space: nowrap;
+}
+.n4-hist-ponto {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #16223d;
+}
+.n4-hist-legenda {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sec);
+}
+.n4-hist-legenda span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.n4-hist-cor {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.n4-hist-regua {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: #f0a020;
+}
+
+/* O eixo com `space-between` casa as marcas com as divisões da área, sem
+   precisar posicionar cada uma. */
+.n4-hist-eixo {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  height: 200px;
+  padding-bottom: 1px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ter);
+  font-variant-numeric: tabular-nums;
+}
+
+.n4-hist-area {
+  position: relative;
+  height: 200px;
+}
+/* A régua da meta fica ACIMA das barras: cortada por elas, ela deixaria de ser
+   uma referência contínua e viraria enfeite atrás do gráfico. */
+.n4-hist-meta {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #f0a020;
+  z-index: 2;
+}
+.n4-hist-barras {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.n4-hist-col {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  border: 1px solid var(--borda);
+  border-bottom-color: #c9d1de;
+  border-radius: 3px 3px 0 0;
+  background: rgba(255, 255, 255, 0.35);
+}
+/*
+ * Mês SEM DADO: moldura esmaecida, e não barra de altura zero.
+ *
+ * Zero é um resultado -- "vendeu e não bateu nada". Ausência é outra coisa. Uma
+ * barra rente ao chão diria a primeira sobre um mês que ninguém mediu.
+ */
+.n4-hist-col.vazia {
+  border-color: #eaedf3;
+  border-bottom-color: var(--borda);
+  background: none;
+}
+.n4-hist-barra {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 3px 3px 0 0;
+}
+/*
+ * O MÊS EM CURSO, hachurado.
+ *
+ * A comparação é contra a meta do MÊS INTEIRO: no dia 2 a barra é baixa por
+ * construção, e sem marcação ela se lê como o pior mês do ano. A hachura diz
+ * "ainda não terminou" sem tirar o número da tela -- esconder o mês corrente
+ * seria pior, porque é dele que a reunião trata.
+ *
+ * VAI NUM `::after`, e não em `background-image` na própria barra.
+ *
+ * A cor da barra vem de `style` inline no React, e `background` é SHORTHAND:
+ * ele zera o `background-image` desta folha, e inline ainda ganha da folha. A
+ * primeira versão ficou invisível por isso -- `backgroundImage: "none"` no
+ * computado, sem erro nenhum. O pseudo-elemento tem caixa própria, e o inline
+ * da barra não o alcança.
+ */
+.n4-hist-col.curso .n4-hist-barra::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.55) 0 4px,
+    transparent 4px 8px
+  );
+}
+.n4-hist-cor.n4-hist-curso {
+  background: #8592a8;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.55) 0 3px,
+    transparent 3px 6px
+  );
+}
+.n4-hist-valor {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--texto);
+  font-variant-numeric: tabular-nums;
+  /*
+   * Auréola branca: o rótulo fica logo acima do topo da barra, e num mês pouco
+   * abaixo da meta (96, 99) esse ponto é exatamente onde passa a régua laranja
+   * — o número saía cortado por uma linha da mesma espessura do traço da fonte.
+   */
+  text-shadow:
+    0 0 3px var(--superficie),
+    0 0 3px var(--superficie);
+}
+.n4-hist-rotulos {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.n4-hist-rotulos span {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--texto);
+  white-space: nowrap;
+}
+.n4-hist-rotulos span.vazio {
+  font-weight: 600;
+  color: #c3cad6;
+}
+.n4-hist-rotulos span.curso {
+  font-weight: 800;
+  color: var(--navy-medio);
+}
+
+@media (max-width: 900px) {
+  /* Rótulo de doze meses não cabe: o gráfico rola em vez de espremer. */
+  .n4-hist-area,
+  .n4-hist-rotulos {
+    min-width: 620px;
+  }
+  .n4-hist-cartao {
+    overflow-x: auto;
+  }
+}
+
+/* "Vendas" carrega o peso; "Reunião diária" fica ao lado, mais leve. */
+.n4-h1-sub {
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--sec);
+  letter-spacing: 0;
+}

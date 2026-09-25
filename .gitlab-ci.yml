@@ -1,0 +1,282 @@
+# Portal GD — pipeline.
+#
+# ATENÇÃO: escrito a partir da descrição do PLANO.md (§11–12), **não** copiado do
+# template oficial da área, que não estava disponível na máquina. A estação 5 da
+# esteira exige o template intacto — antes de subir, compare este arquivo com o
+# `novo-app-template` e mantenha o que for do padrão.
+#
+# Ordem: qualidade → build → deploy. `test` depende de banco, e por isso sobe
+# um serviço de Postgres próprio do job. `deploy` só atualiza a tag no chart
+# (example-charts) — não há estágio de migração, ver o comentário do job de deploy.
+
+stages:
+  - qualidade
+  - build
+  - deploy
+
+variables:
+  # Nome minúsculo-com-hífen, o mesmo em repositório, imagem e chart.
+  APP: portal-gd-backend
+  # `$CI_REGISTRY_IMAGE` JÁ é o caminho do projeto no registry
+  # (…/operacoes/example-team/example-team-backend).
+  # Concatenar `$APP` aqui criava um nível a mais e publicava em
+  # `…/example-team-backend/portal-gd-backend`, enquanto o chart
+  # puxava de outro endereço — imagem publicada num lugar e procurada noutro,
+  # com o pipeline todo verde e `ImagePullBackOff` no cluster.
+  #
+  # O valor literal correspondente tem de estar em `chart/values.yaml`, em
+  # `imagem.repositorio`. Os dois mudam JUNTOS.
+  IMAGEM: $CI_REGISTRY_IMAGE
+  # Falha o job em vez de esperar para sempre por um banco que não subiu.
+  FF_NETWORK_PER_BUILD: "true"
+
+default:
+  image: node:24-alpine
+  # `npm ci` refaz tudo do lock; o cache evita baixar o registry inteiro a cada
+  # job. Chave pelo lock: mudou dependência, cache novo.
+  cache:
+    key:
+      files:
+        - backend/package-lock.json
+    paths:
+      - backend/node_modules/
+
+.no_backend: &no_backend
+  before_script:
+    - cd backend
+    - npm ci
+
+# ── Qualidade ────────────────────────────────────────────────────────────────
+
+lint:
+  stage: qualidade
+  <<: *no_backend
+  script:
+    - npm run lint
+
+tipos:
+  stage: qualidade
+  <<: *no_backend
+  script:
+    # `--noEmit`: o build de verdade acontece no estágio seguinte. Aqui só
+    # interessa saber se o projeto INTEIRO tipa — inclusive testes e scripts,
+    # que o `tsconfig.build.json` não compila.
+    - npx tsc --noEmit -p tsconfig.json
+
+teste:
+  stage: qualidade
+  <<: *no_backend
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    POSTGRES_USER: portalgd
+    POSTGRES_PASSWORD: portalgd_ci
+    POSTGRES_DB: portalgd
+    # A suíte DERIVA a URL de teste desta, trocando o nome do banco, e recria
+    # `portalgd_test` a cada execução. Ver tests/setup/banco.ts — é a separação
+    # que impede um teste de ingestão apagar janela de dado real.
+    DATABASE_URL: postgresql://portalgd:portalgd_ci@postgres:5432/portalgd?schema=public
+    # NÃO herdar credencial de Oracle aqui. A suíte apaga ORACLE_* de propósito
+    # (ver vitest.config.ts): teste que depende do banco da empresa falha fora da
+    # rede e mede rede em vez de código.
+  script:
+    - npx prisma generate
+    - npm test
+
+# ── Paridade de schema (prod montado por GMUD == dev montado por migration) ──
+#
+# POR QUE ESTE JOB EXISTE: producao e' montada pelo `8-cria_banco`, GERADO por
+# `gerar-gmud-criacao.ts`, que dumpa tabelas/tipos/indices/views/comentarios --
+# e NAO objetos soltos (sequence, function, trigger). Dev vem das migrations do
+# Prisma, que os trazem. Os dois divergiram em silencio: faltou a sequence do
+# codigo (500 ao abrir contramedida, corrigido no 13) e os triggers de
+# integridade (ausentes, corrigidos no 14). NADA comparava os dois -- a suite
+# roda so' contra o schema do Prisma, nunca contra o da GMUD.
+#
+# Este job monta os DOIS e compara as CLASSES que o gerador dropa: sequence,
+# function, trigger. Se dev tem uma que as GMUDs nao criam, o pipeline fica
+# VERMELHO -- a divergencia silenciosa vira build quebrado.
+#
+# Escopo de proposito: so' essas tres classes. Tabela/coluna/indice o gerador
+# emite, e os NOMES de constraint/indice divergem de proposito (`_pkey` do
+# Prisma vs `_PK` que o 1-renomeia) -- compara-los daria vermelho benigno.
+# Sequence, function e trigger tem nome e definicao iguais nos dois lados.
+#
+# O lado GMUD aplica os scripts numerados >= 8 (o 8 e' o schema-base; 1 a 7 ja'
+# estao embutidos nele). Script novo de schema entra no comparativo sozinho.
+paridade-schema:
+  stage: qualidade
+  image: node:24-alpine
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    POSTGRES_USER: portalgd
+    POSTGRES_PASSWORD: portalgd_ci
+    POSTGRES_DB: portalgd
+    PGHOST: postgres
+    PGUSER: portalgd
+    PGPASSWORD: portalgd_ci
+  before_script:
+    - apk add --no-cache postgresql-client
+    - cd backend && npm ci && cd ..
+  script:
+    - until pg_isready -h postgres -U portalgd; do sleep 1; done
+    # Lado DEV: schema montado pelas migrations do Prisma.
+    - psql -d postgres -c 'CREATE DATABASE par_mig;'
+    - (cd backend && DATABASE_URL="postgresql://portalgd:portalgd_ci@postgres:5432/par_mig?schema=public" npx prisma migrate deploy)
+    # Lado PROD: schema montado pelas GMUDs numeradas >= 8, na ordem.
+    - psql -d postgres -c 'CREATE DATABASE par_gmud;'
+    - |
+      for f in $(ls docs/gmud/*.sql | grep -v RECUPERA | awk -F/ '{n=$NF; if((n+0)>=8) print (n+0)"\t"$0}' | sort -n | cut -f2-); do
+        echo "aplicando $f"
+        psql -d par_gmud -v ON_ERROR_STOP=1 -q -f "$f" >/dev/null
+      done
+    # Compara os objetos soltos (sequence, function, trigger).
+    - psql -d par_mig  -q -f backend/scripts/paridade-objetos.sql > mig.txt
+    - psql -d par_gmud -q -f backend/scripts/paridade-objetos.sql > gmud.txt
+    - |
+      if diff -u mig.txt gmud.txt; then
+        echo "PARIDADE OK: sequences, functions e triggers batem entre migrations (dev) e GMUDs (prod)."
+      else
+        echo "-------------------------------------------------------------------"
+        echo "DIVERGENCIA: um objeto que o dev tem (migrations) falta ou difere"
+        echo "nas GMUDs que montam producao. Crie/ajuste a GMUD do objeto acima."
+        echo "Contexto: memoria gmud-gerada-omite-objetos-soltos; docs/gmud/13 e 14."
+        echo "-------------------------------------------------------------------"
+        exit 1
+      fi
+
+# ── Build ────────────────────────────────────────────────────────────────────
+
+imagem:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  cache: []
+  variables:
+    # ─────────────────────────────────────────────────────────────────────────
+    # Cliente e daemon FALANDO NA MESMA PORTA.
+    #
+    # Do `docker:19` em diante o dind liga TLS sozinho e escuta em 2376 com
+    # certificado. O runner desta área aponta o cliente para 2375, a porta sem
+    # TLS — e ninguém atende ali. O sintoma foi
+    # `Cannot connect to the Docker daemon at tcp://docker:2375`, DEPOIS de um
+    # `docker login` bem-sucedido: o login fala com o registry por HTTPS e não
+    # encosta no daemon, então ele passa mesmo com o daemon inalcançável.
+    #
+    # As duas variáveis andam JUNTAS. `DOCKER_TLS_CERTDIR` vazio desliga o TLS
+    # do dind e o faz escutar em 2375; `DOCKER_HOST` fixa o cliente na mesma
+    # porta em vez de depender da configuração do runner. Mudar uma sem a outra
+    # reproduz exatamente este erro, com as pontas trocadas.
+    #
+    # O tráfego não vai cifrado. É aceitável aqui e não em geral: o
+    # `FF_NETWORK_PER_BUILD` (declarado no topo) dá a este job uma rede própria,
+    # criada e destruída com ele, onde só vivem o container do job e o dind.
+    # Sem essa flag, um socket de Docker aberto sem TLS numa rede compartilhada
+    # é acesso de root à máquina — e a correção seria a oposta: apontar tudo
+    # para 2376 e montar `/certs/client`.
+    # ─────────────────────────────────────────────────────────────────────────
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: tcp://docker:2375
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  script:
+    # Contexto = `backend/`. Possível desde 22/08/2026, quando as consultas e o
+    # `fontes.mjs` saíram de `docs/` para `src/fontes/`.
+    # `--build-arg APP_VERSION`: grava o commit na imagem, para a rota /version
+    # dizer qual versao esta' no ar (ver Dockerfile e modules/health).
+    - docker build --build-arg APP_VERSION="$CI_COMMIT_SHORT_SHA" -t "$IMAGEM:$CI_COMMIT_SHORT_SHA" -f backend/Dockerfile backend
+    - docker push "$IMAGEM:$CI_COMMIT_SHORT_SHA"
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        docker tag "$IMAGEM:$CI_COMMIT_SHORT_SHA" "$IMAGEM:latest"
+        docker push "$IMAGEM:latest"
+      fi
+    # O ENDERECO EXATO, no fim do log: e' o que a infra copia para subir. Sem
+    # isto, descobrir o que foi publicado exige abrir o Container Registry e
+    # cruzar com o SHA do commit.
+    - |
+      echo "────────────────────────────────────────────────────────────"
+      echo "  Imagem publicada:  $IMAGEM:$CI_COMMIT_SHORT_SHA"
+      echo "  Commit:            $CI_COMMIT_SHORT_SHA"
+      echo "  Como rodar:        ver chart/values.yaml neste repositorio"
+      echo "────────────────────────────────────────────────────────────"
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+# ── Deploy ───────────────────────────────────────────────────────────────────
+
+# O QUE ESTE JOB FAZ -- E O QUE NAO FAZ.
+#
+# ATE 18/09/2026 nao havia isto: o pipeline publicava a imagem e parava, porque
+# o chart REAL (o que o Fleet aplica no cluster imb) mora num repositorio
+# DIFERENTE -- example-charts, em gitlab.example.com, e nao neste. O `chart/` que
+# fica AQUI e' so' descricao de como a aplicacao deve rodar; nada o le
+# automaticamente, e continua sendo a fonte de verdade de portas, sondas,
+# variaveis, limites, nome do secret.
+#
+# O job clona o example-charts, escreve `imagem.tag` no `fleet.yaml` de la' (sed na
+# linha exata, NAO yq -- o yq reescreve o arquivo inteiro pelo proprio parser e
+# pode apagar comentarios/linhas em branco do resto do fleet.yaml, que tem
+# blocos de outros apps). Guarda com `grep -c` = "1" antes de mexer: se o
+# padrao aparecer 0 ou 2+ vezes, o job falha em vez de editar a linha errada.
+# Mesmo mecanismo ja usado por outros apps nesse GitLab (ex: cashback-backend).
+#
+# O QUE ISTO NAO FAZ: nao roda `helm upgrade`, nao toca o cluster imb direto.
+# Quem aplica e' o Fleet, sozinho, quando reconciliar o example-charts -- pode levar
+# alguns minutos depois do push. Este commit e' "pedido de deploy", nao deploy.
+#
+# PRECISA da CI/CD variable `CHARTS_ACCESS_TOKEN` (protected + masked) --
+# access token do gitlab.example.com com escopo `write_repository` no
+# example-charts. Criada no grupo `example-team` deste GitLab (nao no
+# projeto), pra valer pros dois repos (back e front) sem duplicar.
+#
+# NAO HA' ESTAGIO DE MIGRACAO, e isso continua igual: quem cria as tabelas de
+# producao e' o DBA, pela GMUD. Contra um banco que ja' tem tabelas e um
+# `_prisma_migrations` vazio, o Prisma RECUSA com `P3005` -- confirmado pelo
+# analista em 14/09/2026.
+atualiza-chart-imb:
+  stage: deploy
+  image: alpine:latest
+  needs: ["imagem"]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  before_script:
+    - apk add --no-cache git
+  script:
+    - |
+      set -e
+      IMAGE_TAG="$CI_COMMIT_SHORT_SHA"
+      for attempt in 1 2 3 4 5; do
+        rm -rf chart
+        git clone --depth 1 "https://oauth2:${CHARTS_ACCESS_TOKEN}@gitlab.example.com/infra/charts/example-charts.git" chart
+        FLEET=chart/operacoes/example-team/portal-gd-backend/fleet.yaml
+        test "$(grep -c '^          tag: ' "$FLEET")" = "1"
+        sed -i "s|^          tag: .*|          tag: \"$IMAGE_TAG\"|" "$FLEET"
+        grep -n '^          tag: ' "$FLEET"
+        cd chart
+        git config user.email "ci@acmelabs.com.br"
+        git config user.name "CI portal-gd-backend"
+        git add operacoes/example-team/portal-gd-backend/fleet.yaml
+        if git diff --cached --quiet; then
+          echo "chart ja esta na tag $IMAGE_TAG, nada a fazer"
+          cd ..
+          break
+        fi
+        git commit -m "[ci] portal-gd-backend: imagem.tag $IMAGE_TAG (imb) [skip ci]"
+        if git push origin main; then
+          echo "push OK na tentativa $attempt"
+          cd ..
+          break
+        fi
+        echo "push falhou na tentativa $attempt (provavel race condition no example-charts compartilhado), tentando de novo"
+        cd ..
+        if [ "$attempt" = "5" ]; then
+          echo "ERRO: esgotou as tentativas de push"
+          exit 1
+        fi
+        sleep $((RANDOM % 5 + 2))
+      done

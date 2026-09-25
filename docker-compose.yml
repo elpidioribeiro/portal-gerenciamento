@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: portalgd-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: portalgd
+      POSTGRES_PASSWORD: portalgd_dev
+      POSTGRES_DB: portalgd
+      # Datas e ordenação em pt-BR; TZ do banco fica em UTC e a conversão
+      # para America/Recife acontece na aplicação (ver backend/src/lib/datas.ts).
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - "5432:5432"
+    volumes:
+      - portalgd_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portalgd -d portalgd"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  portalgd_pgdata:

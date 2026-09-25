@@ -1,0 +1,1446 @@
+// Portal GD — modelo de dados
+// Ver PLANO.md seção 5 para o racional de cada decisão.
+//
+// Três regras que o schema materializa e que não podem ser violadas:
+//   1. Guardar componentes crus, nunca o percentual pronto — percentual gravado
+//      não pode ser reagregado para outro período.
+//   2. Razão se recalcula sobre os totais, nunca se soma nem se promedia.
+//   3. desvio %, status, SLA e "em aberto há" são derivados na leitura,
+//      nunca colunas — senão envelhecem sozinhos no banco.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum Nivel {
+  N1
+  N2
+  N3
+  N4
+  N5
+  CROSS
+
+  @@map("nivel_type")
+}
+
+/// Quem administra o portal, e quem administra QUEM administra.
+///
+/// `ADMIN` faz tudo na area de administracao: classifica perfil, configura
+/// variavel, dispara carga, escolhe a visao. `MASTER` faz isso e mais uma
+/// coisa: concede e revoga o papel dos outros.
+///
+/// NAO E' NIVEL, e por isso nao entrou no enum `Nivel`. Aquele enum descreve a
+/// cadeia de ajuda do GD e ja carrega dois fantasmas (`N1` e `N5`, fora da
+/// hierarquia desde 24/08/2026 e presos ali porque remove-los custaria recriar
+/// o tipo). Um sexto valor que nao e' um nivel do GD repetiria o mesmo erro --
+/// e `nivel` comanda escopo, quadro e politica de abertura, que nada tem a ver
+/// com administrar.
+enum PapelAdmin {
+  NENHUM
+  ADMIN
+  MASTER
+
+  @@map("papel_admin_type")
+}
+
+enum TipoFilial {
+  FILIAL
+  REDE
+  CORPORATIVO
+
+  @@map("tipo_filial_type")
+}
+
+/// MAIOR_MELHOR: Vendas, NPS · MENOR_MELHOR: Perdas, Custo
+enum Sentido {
+  MAIOR_MELHOR
+  MENOR_MELHOR
+
+  @@map("sentido_type")
+}
+
+enum EscopoMeta {
+  INDICADOR
+  VARIAVEL
+  /// Meta de vendas da area de venda, por mes e filial. Ver PLANO 7.10.
+  AREA_VENDA
+
+  @@map("escopo_meta_type")
+}
+
+/// CONTRA O QUE uma ocorrencia de ponto de causa e' marcada.
+///
+/// Espelha `EscopoMeta`, e pelo mesmo motivo: a coluna aponta para tabelas
+/// diferentes conforme o escopo, e chave estrangeira nao faz isso. Quem valida
+/// e' a trigger `fnc_valida_alvo_ocorrencia`.
+///
+/// Existe porque a marcacao era amarrada a AREA DE VENDA, e area de venda so'
+/// existe em gerencia de VENDA. Uma gerencia OPERACIONAL -- deposito, com
+/// recebimento, armazenagem e expedicao -- nao tem area de venda, e a marcacao
+/// dela precisaria de outra coluna. Com o escopo, precisa de um VALOR NOVO no
+/// enum, nao de mudanca de tabela.
+///
+/// Ver PLANO 7.19.
+enum EscopoMarcacao {
+  /// Gerencia de venda: a linha do quadro e' a area, com supervisor.
+  AREA_VENDA
+  /// A gerencia inteira, sem desdobramento. E' a saida para gerencia que ainda
+  /// nao tem unidade abaixo definida -- marca-se contra ela mesma.
+  GERENCIA
+
+  @@map("escopo_marcacao_type")
+}
+
+/// A classificacao do vendedor no mes, COMO A ORIGEM A CALCULA.
+///
+/// Nao e' derivada aqui: vem pronta de `vendedor-situacao.sql`, onde o `CASE`
+/// do Power BI foi reproduzido. Ver PLANO 7.14.
+///
+/// SUPERVISOR e MES_EM_VIGOR CONTAM no denominador -- a regra e'
+/// `<> SEM_VENDA`, nao `= COM_VENDA`. Trocar uma pela outra esvaziaria o
+/// denominador do mes corrente inteiro.
+enum HouveVenda {
+  SEM_VENDA
+  SUPERVISOR
+  MES_EM_VIGOR
+  COM_VENDA
+
+  @@map("houve_venda_type")
+}
+
+/// QI = quebra identificada · QNI = quebra não identificada
+enum TipoQuebra {
+  QI
+  QNI
+
+  @@map("tipo_quebra_type")
+}
+
+/// Só APROVADA entra no cálculo de Perdas % Mov. Uma quebra PENDENTE que é
+/// aprovada meses depois altera um dia já fechado — por isso a janela de
+/// recarga de Perdas é de 2 anos, e não de 30 dias como os demais.
+enum StatusQuebra {
+  PENDENTE
+  APROVADA
+
+  @@map("status_quebra_type")
+}
+
+enum Prioridade {
+  ALTA
+  MEDIA
+  BAIXA
+
+  @@map("prioridade_type")
+}
+
+enum TipoMovimentacao {
+  ESCALACAO
+  /// Prestacao de contas sem soltar a acao. Chamava-se devolutiva. Ver PLANO 7.1.
+  ATUALIZACAO
+  DIRECIONAMENTO
+  CONCLUSAO
+  /// De quem abriu, depois de concluida: o indicador respondeu? Ver PLANO 7.3.
+  FEEDBACK
+  /// Reservado. Devolvia a acao ao nivel de baixo; saiu de uso em 25/08/2026.
+  /// Fica pelas linhas historicas -- eram revisoes de verdade quando ocorreram.
+  REVISAO
+  /// Devolve a acao a quem a passou, com observacao obrigatoria. Ver PLANO 7.58.
+  ///
+  /// NAO reaproveita REVISAO, que fazia um movimento parecido: as linhas
+  /// historicas de REVISAO sao revisoes de verdade, e juntar os dois sentidos
+  /// na mesma coluna faria toda leitura do passado escolher entre dois
+  /// significados sem ter como distinguir.
+  REJEICAO
+
+  @@map("tipo_movimentacao_type")
+}
+
+/// Em desuso desde 25/08/2026: o feedback virou texto livre (PLANO 7.3).
+/// Mantido para as linhas ja gravadas e para o caso de a classificacao voltar
+/// como campo opcional ao lado do comentario.
+enum ResultadoIndicador {
+  META_ATINGIDA
+  MELHORA_PARCIAL
+  SEM_EFEITO
+
+  @@map("resultado_indicador_type")
+}
+
+enum StatusSync {
+  EM_ANDAMENTO
+  SUCESSO
+  ERRO
+
+  @@map("status_sync_type")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Domínio organizacional
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Filial {
+  vendaAreaMes    VendaAreaMes[]
+  vendedorAreaMes VendedorAreaMes[]
+  id              String            @id(map: "filial_pk") @default(uuid()) @db.Uuid
+  sigla           String            @unique(map: "filial_uk02") @db.VarChar(20)
+  /// Codigo da empresa no sistema corporativo (`cod_empresa`).
+  ///
+  /// Nulo quando a filial nao tem correspondencia — e o inverso tambem existe:
+  /// o RH tem empresas que nao sao filiais do GD (99 corporativo, 8x/9xxx os
+  /// CDs), e essas nao tem linha aqui. A traducao codigo->filial e' portanto
+  /// parcial nos dois sentidos, e quem exibe precisa lidar com a ausencia.
+  codigo          Int?              @unique(map: "filial_uk01")
+  nome            String
+  tipo            TipoFilial        @default(FILIAL)
+  ordem           Int
+  ativa           Boolean           @default(true)
+
+  usuarios          Usuario[]
+  gerencias         DimGerencia[]
+  areasVenda        DimAreaVenda[]
+  linhas            DimLinha[]
+  metas             Meta[]
+  fatoVendas        FatoVendas[]
+  fatoVendasLinha   FatoVendasLinha[]
+  fatoNps           FatoNps[]
+  fatoPerdas        FatoPerdas[]
+  fatoMovimentacao  FatoMovimentacao[]
+  fatoCusto         FatoCusto[]
+  vendedores        DimVendedor[]
+  fatoVendaVendedor FatoVendaVendedor[]
+  vendedorMes       VendedorMes[]
+  diasUteis         DiaUtil[]
+  contramedidas     Contramedida[]
+
+  @@map("filial")
+}
+
+/// Buckets do GD. Cadastro próprio do portal, sem relação com DimArea /
+/// DimLinha (que servem só ao detalhe de Vendas).
+///   N4    → grupo null, nome "Construção"   (a GERÊNCIA -- o quadro do coordenador)
+///   N3/N2 → grupo null, nome "Vendas"
+///   CROSS → grupo null, nome "Suprimentos"
+///
+/// A ÁREA DE VENDA não é agrupamento de ninguém hoje: ela é a camada abaixo da
+/// gerência, e pertence ao N5, que ainda não existe. Ver §7.28.
+model Bucket {
+  id    String  @id(map: "agrupamento_pk") @default(uuid()) @db.Uuid
+  nivel Nivel
+  grupo String?
+  nome  String
+  ordem Int
+
+  usuarios             Usuario[]
+  pontosCausa          PontoCausa[]
+  contramedidas        Contramedida[]
+  movimentacoesDestino Movimentacao[]
+
+  @@unique([nivel, nome], map: "agrupamento_uk01")
+  @@map("agrupamento")
+}
+
+model Usuario {
+  id        String @id(map: "usuario_pk") @default(uuid()) @db.Uuid
+  loginErp  String @unique(map: "usuario_uk01") @map("login_erp")
+  /// `numcad` do cadastro corporativo -- a MATRICULA, e nao o login.
+  ///
+  /// Sao coisas diferentes e pareciam a mesma: `login_erp` e' `u10001abc`, a
+  /// matricula e' `10001`. E' pela matricula que a API de login identifica a
+  /// pessoa (`employeeId`), que o Oracle acha o perfil (`numcad`), e que
+  /// `MatriculaNivel` associa alguem a um nivel especifico.
+  ///
+  /// Nula em usuario que nao vem do sistema corporativo (MockAuthProvider).
+  ///
+  /// UNICA: e' a chave de RECONCILIACAO entre a carga de usuarios e o primeiro
+  /// login. A view do RH nao tem coluna de login (13 colunas, nenhuma delas),
+  /// entao a carga grava um `login_erp` provisorio e o login adota a linha pela
+  /// matricula. Sem a unicidade, a mesma pessoa viraria tres linhas.
+  matricula Int?   @unique(map: "usuario_uk02")
+
+  /// Verdadeiro enquanto a linha existe APENAS porque a carga a criou -- a
+  /// pessoa nunca entrou no portal.
+  ///
+  /// Vira falso no primeiro login, e a partir dai a carga nao mexe mais em
+  /// `ativo` nem em `admin`: sao decisoes do portal, e quem ja' entrou tem
+  /// estado proprio. Ver §7.33.
+  origemCarga Boolean @default(false) @map("origem_carga")
+  nome        String
+  iniciais    String  @db.VarChar(3)
+  cargo       String
+  /// Perfil vindo do sistema corporativo. É a FONTE do nível: `nivel` abaixo é
+  /// só o valor resolvido pela última vez. Quando presente, a resolução passa
+  /// por PerfilNivel a cada requisição — ver modules/auth/nivel.ts.
+  idPerfil    Int?    @map("id_perfil")
+  /// Lotacao no cadastro corporativo, gravada no login.
+  ///
+  /// Compoe com `idPerfil` e o codigo da filial a chave de `PerfilVariavel` --
+  /// a associacao que diz de quais variaveis de controle a pessoa responde.
+  /// Consultar sem ela daria, a um VENDEDOR, as variaveis das 21 lotacoes do
+  /// cargo. Nulo em usuario que nao vem do sistema corporativo.
+  nomloc      String?
+  /// Nível resolvido. Usado direto apenas quando `idPerfil` é nulo (usuários do
+  /// MockAuthProvider, que não vêm do sistema corporativo).
+  nivel       Nivel
+  filialId    String? @map("filial_id") @db.Uuid
+  bucketId    String? @map("bucket_id") @db.Uuid
+  /// Foto vinda da API de login: URL ou base64. Nula é o caso comum, e a tela
+  /// cai para as iniciais.
+  foto        String?
+  /// Só usado pelo MockAuthProvider. Nulo quando o usuário vem da API ERP.
+  senhaHash   String? @map("senha_hash")
+  /// Ve todos os niveis e escolhe qual visualizar, e abre a area de
+  /// administracao. E' DADO, nao codigo -- um segundo administrador e' UPDATE,
+  /// nao deploy.
+  ///
+  /// Tambem e' a unica porta de entrada enquanto os perfis nao estiverem
+  /// classificados — perfil sem nivel e' BLOQUEADO no login, e sao 462 perfis
+  /// na view do RH contra os poucos cadastrados aqui.
+  ///
+  /// UMA COLUNA, e nao duas booleanas (`admin` + `master`). Duas permitiriam
+  /// gravar master que nao e' admin, um estado sem significado que alguem teria
+  /// de lembrar de impedir em todo lugar que escreve. Aqui ele nao existe.
+  ///
+  /// A ANCORA NAO MORA AQUI. A matricula 10001 e' MASTER por codigo, e o valor
+  /// desta coluna nao a alcanca -- ver modules/auth/papel-admin.ts. Um UPDATE
+  /// errado nesta linha nao tranca a administracao do portal para fora.
+  papelAdmin  PapelAdmin @default(NENHUM) @map("papel_admin")
+  /// Falso em quem ADMINISTRA mas nao participa da cadeia de ajuda.
+  ///
+  /// Separada de `nivel` e de `papelAdmin` porque e' uma terceira pergunta:
+  /// `nivel` diz o que a pessoa VE, `papelAdmin` diz o que ela CONFIGURA, e
+  /// esta diz se trabalho pode cair na mao dela. Quem tem falso some da lista
+  /// de destinatarios e nao recebe abertura, escalacao nem direcionamento.
+  ///
+  /// A REJEICAO PASSA, e e' a unica excecao: devolver uma acao rejeitada a quem
+  /// a abriu nao entrega trabalho -- entrega o aviso de que ela voltou. Acao
+  /// rejeitada esta encerrada (`movimentar` recusa qualquer movimento nela), e
+  /// barrar a devolucao prenderia a acao com quem ja disse que nao e' sua.
+  recebeAcao  Boolean @default(true) @map("recebe_acao")
+  ativo       Boolean @default(true)
+
+  filial Filial? @relation(fields: [filialId], references: [id], map: "usuario_filial_fk")
+  bucket Bucket? @relation(fields: [bucketId], references: [id], map: "usuario_agrupamento_fk")
+
+  refreshTokens        RefreshToken[]
+  ocorrencias          OcorrenciaPontoCausa[]
+  custosLancados       FatoCusto[]
+  contramedidasCriadas Contramedida[]         @relation("ContramedidaCriador")
+  contramedidasAtuais  Contramedida[]         @relation("ContramedidaResponsavel")
+  movimentacoesAutor   Movimentacao[]         @relation("MovimentacaoAutor")
+  movimentacoesDestino Movimentacao[]         @relation("MovimentacaoDestino")
+  comentarios          Comentario[]
+  auditoria            AuditLog[]
+  cargaAgendamentos    CargaAgendamento[]
+
+  @@index([nivel], map: "usuario_idx02")
+  @@index([idPerfil], map: "usuario_idx01")
+  @@index([bucketId], map: "usuario_idx03")
+  @@index([filialId], map: "usuario_idx04")
+  /// A tela de administracao lista quem administra, e sao poucos entre milhares.
+  @@index([papelAdmin], map: "usuario_idx05")
+  @@map("usuario")
+}
+
+/// Quais variaveis de controle um (id_perfil, nomloc, cod_empresa) pode ver.
+///
+/// As TRES partes importam, e cada uma responde uma pergunta diferente:
+///
+/// - `id_perfil` e' cargo x LOTACAO no sistema corporativo. "GERENTE ADJUNTO"
+///   tem quatro (16 ATENDIMENTO E SERVICOS, 17 OPERACIONAL, 18 VENDAS
+///   CONSTRUCAO, 19 VENDAS NAO CONSTRUCAO).
+/// - `nomloc` e' a lotacao (o setor), redundante com o id_perfil em 83% dos
+///   casos e discriminante nos outros — VENDEDOR e' um perfil so' repartido em
+///   21 lotacoes.
+/// - `cod_empresa` e' a LOJA. Entrou na chave depois: sem ela, o mesmo cargo no
+///   mesmo setor via as mesmas variaveis em Campo e na Sul.
+///
+/// `nomloc` e' guardado SEMPRE com trim. Os campos da view do RH vem com espaco
+/// a direita (medido: `'GERENTE ADJUNTO '`), e sem normalizar as duas pontas a
+/// associacao nao casa no login — a pessoa nao ve variavel nenhuma e nenhum erro
+/// aparece.
+///
+/// Ausencia de linha significa NENHUMA variavel visivel — nega por padrao, a
+/// mesma regra do login que bloqueia perfil sem nivel.
+
+/// Quais variaveis de controle cada GERENCIA acompanha.
+///
+/// E' o que decide o que a tela do N3 mostra: categoria sem variavel atribuida
+/// nao e' desenhada. Sem isto, nada diz que Deposito nao acompanha Vendas.
+///
+/// O grao e' a VARIAVEL, nao a categoria -- a categoria sai do indicador da
+/// variavel. Guarda-la aqui criaria uma segunda verdade sobre a mesma coisa.
+///
+/// Espelha `PerfilVariavel`, que faz o mesmo para PESSOAS. Ausencia de linha
+/// significa NENHUMA variavel: nega por padrao. Ver PLANO 7.11.
+model GerenciaVariavel {
+  gerenciaId         String   @map("gerencia_id") @db.Uuid
+  variavelControleId String   @map("variavel_controle_id") @db.Uuid
+  criadoEm           DateTime @default(now()) @map("criado_em")
+
+  gerencia         DimGerencia      @relation(fields: [gerenciaId], references: [id], onDelete: Cascade, map: "gerencia_variavel_dimensao_gerencia_fk")
+  variavelControle VariavelControle @relation(fields: [variavelControleId], references: [id], onDelete: Cascade, map: "gerencia_variavel_variavel_controle_fk")
+
+  /// Chave composta: e' associacao pura, sem identidade propria.
+  @@id([gerenciaId, variavelControleId], map: "gerencia_variavel_pk")
+  @@index([gerenciaId], map: "gerencia_variavel_idx01")
+  @@index([variavelControleId], map: "gerencia_variavel_idx02")
+  @@map("gerencia_variavel")
+}
+
+/// Mapeamento `id_perfil` do sistema corporativo → nível do GD.
+///
+/// É TABELA, não `if/else` no código: cada nível corresponde a vários perfis
+/// ("os id_perfil de gerente corporativo"), e a lista muda quando o RH cria um
+/// cargo. Em código, cada cargo novo seria um deploy; aqui é um INSERT — e desde
+/// a API do admin, um PUT feito pelo próprio administrador, sem deploy nenhum.
+///
+/// Perfil não cadastrado **nega o acesso**, nunca cai num nível padrão. Um
+/// `default: N2` daria visão de diretoria a qualquer funcionário cujo cargo
+/// ninguém mapeou — e sem sintoma nenhum, porque a pessoa simplesmente veria
+/// dados que não deveria.
+/// **O cadastro do N2: uma matricula por linha.** Prevalece sobre `PerfilNivel`.
+///
+/// O N2 e' corporativo e nao se identifica por cargo -- perfil e' CARGO, e cargo
+/// nem sempre diz o papel no GD: Pedro Souto tem `id_perfil` 11, que esta'
+/// associado a N3, e responde como N2. Sem esta tabela a saida seria
+/// reclassificar o perfil 11 inteiro, levando junto todo mundo com aquele cargo.
+///
+/// Decisao do analista (28/08/2026). A regra vale escrita: **a linha da pessoa
+/// vence a do perfil**, sempre, e sem mescla.
+///
+/// A coluna `nivel` continua existindo e hoje so' recebe `N2` -- e' o unico
+/// nivel que se cadastra por matricula. Ela fica porque abrir os outros depois
+/// e' acrescentar uma opcao no seletor, e nao uma migracao.
+model MatriculaNivel {
+  /// `numcad`, a matricula. Nao o login.
+  matricula Int      @id(map: "matricula_nivel_pk")
+  /// Sempre `N2` hoje. Ver o comentario do modelo.
+  nivel     Nivel    @default(N2)
+  descricao String
+  ativo     Boolean  @default(true)
+  criadoEm  DateTime @default(now()) @map("criado_em")
+
+  @@index([nivel], map: "matricula_nivel_idx01")
+  @@map("matricula_nivel")
+}
+
+/// **O cadastro do N3 e do N4: um `id_perfil` por linha.**
+///
+/// A chave e' o `id_perfil` SOZINHO (decisao do analista, 28/08/2026). Chegou a
+/// ser `(id_perfil, nomloc)` por meio dia, para distinguir os quatro perfis de
+/// GERENTE ADJUNTO -- mas eles ja' sao quatro `id_perfil` DIFERENTES (18 =
+/// Vendas Construcao, 19 = Vendas Nao Construcao), e a lotacao nao acrescentava
+/// nada: repetia na chave o que o perfil ja' dizia.
+///
+/// A EMPRESA tambem nao entra: a associacao vale para as nove lojas, e quem
+/// escolhe a filial e' a PESSOA que loga. Uma linha por filial seria o mesmo
+/// cadastro repetido nove vezes, e nove lugares para esquecer de atualizar um.
+///
+/// De quais variaveis o N4 responde esta' em `PerfilVariavel`, cadastrado na
+/// mesma tela e no mesmo salvamento. O N3 nao tem variaveis: ele le' a filial
+/// inteira e nao marca ponto de causa.
+model PerfilNivel {
+  idPerfil  Int      @id(map: "perfil_nivel_pk") @map("id_perfil")
+  nivel     Nivel
+  descricao String
+  ativo     Boolean  @default(true)
+  criadoEm  DateTime @default(now()) @map("criado_em")
+
+  variaveis PerfilVariavel[]
+
+  @@index([nivel], map: "perfil_nivel_idx01")
+  @@map("perfil_nivel")
+}
+
+/// De quais variaveis de controle o perfil responde -- **o que o N4 pode MARCAR**.
+///
+/// Cadastrado junto com o nivel, na mesma tela e no mesmo salvamento: sao as
+/// duas metades de uma decisao so' ("este cargo e' N4, e acompanha isto"), e
+/// separa-las em dois cadastros ja' deu divergencia uma vez.
+///
+/// A EMPRESA nao entra na chave -- e' a filial de quem loga que filtra o que
+/// aparece. Ver o comentario de `PerfilNivel`.
+///
+/// So' faz sentido para o N4. O N3 le' a filial inteira e o N2 e' corporativo:
+/// nenhum dos dois marca ponto de causa.
+model PerfilVariavel {
+  idPerfil           Int      @map("id_perfil")
+  variavelControleId String   @map("variavel_controle_id") @db.Uuid
+  criadoEm           DateTime @default(now()) @map("criado_em")
+
+  /// Cascata: tirar a classificacao do perfil tira junto as variaveis dele. Uma
+  /// associacao orfa nao vale nada -- sem nivel a pessoa nem entra.
+  perfil           PerfilNivel      @relation(fields: [idPerfil], references: [idPerfil], onDelete: Cascade, map: "perfil_variavel_perfil_nivel_fk")
+  variavelControle VariavelControle @relation(fields: [variavelControleId], references: [id], onDelete: Cascade, map: "perfil_variavel_variavel_controle_fk")
+
+  @@id([idPerfil, variavelControleId], map: "perfil_variavel_pk")
+  @@index([idPerfil], map: "perfil_variavel_idx01")
+  @@index([variavelControleId], map: "perfil_variavel_idx02")
+  @@map("perfil_variavel")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dimensões de venda (carregadas do Oracle junto com o detalhe)
+//
+// Só existem para servir FatoVendasLinha. Os buckets do GD são cadastro
+// próprio do portal e não têm relação com estas tabelas.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Gerencia adjunta dentro da filial: Construcao, Nao Construcao, Deposito.
+///
+/// E' o ESCOPO DO N4. O supervisor de uma area de venda responde ao gerente
+/// adjunto conforme a area dele estar alocada aqui. Ver PLANO 7.9.
+model DimGerencia {
+  vendaAreaMes    VendaAreaMes[]
+  vendedorAreaMes VendedorAreaMes[]
+  id              String            @id(map: "dimensao_gerencia_pk") @default(uuid()) @db.Uuid
+  filialId        String            @map("filial_id") @db.Uuid
+  nome            String
+
+  filial     Filial             @relation(fields: [filialId], references: [id], map: "dimensao_gerencia_filial_fk")
+  areasVenda DimAreaVenda[]
+  fatoVendas FatoVendasLinha[]
+  variaveis  GerenciaVariavel[]
+
+  @@unique([filialId, nome], map: "dimensao_gerencia_uk01")
+  @@index([filialId], map: "dimensao_gerencia_idx01")
+  @@map("dimensao_gerencia")
+}
+
+/// Area de venda dentro da filial. Tem supervisor e agrupa LINHAS.
+///
+/// Ex.: Pisos e Revestimentos, Metais e Acessorios. Chegou a se chamar
+/// `DimArea` em 26/08/2026, por leitura errada da estrutura -- eu tratei estes
+/// nomes como linhas. Sao areas de venda, e o nome voltou.
+model DimAreaVenda {
+  vendaAreaMes    VendaAreaMes[]
+  vendedorAreaMes VendedorAreaMes[]
+  id              String            @id(map: "dimensao_area_venda_pk") @default(uuid()) @db.Uuid
+  filialId        String            @map("filial_id") @db.Uuid
+  gerenciaId      String            @map("gerencia_id") @db.Uuid
+  /// Codigo da area no cadastro corporativo (`ERP_AREA_VENDA.CD_AREA`).
+  ///
+  /// E' a IDENTIDADE da area, e `nome` passou a ser rotulo. A troca aconteceu
+  /// em 27/08/2026, quando a cadeia de Performance Vendedor passou a cruzar
+  /// vendedor -> area -> supervisor por codigo: identificar por nome faria a
+  /// area virar OUTRA area no dia em que alguem corrigisse a grafia no
+  /// cadastro -- meta orfa de um lado, area sem meta do outro, sem erro nenhum.
+  cdArea          String            @map("cd_area")
+  /// Rotulo de exibicao. Reafirmado a cada carga a partir da origem.
+  nome            String
+  /// Area de DESTAQUE do quadro: aparece antes, e o resto fica atras do
+  /// "expandir".
+  ///
+  /// Cadastro do portal, nao da carga -- por isso a ingestao so' atualiza
+  /// `nome` e `gerencia_id`, e este campo sobrevive a ela. Uma gerencia tem
+  /// ate' 28 areas, e a reuniao de 15 minutos nao passa por todas: tres por
+  /// gerencia foi a escolha do analista (31/08/2026, PLANO §7.31).
+  destaque        Boolean           @default(false)
+
+  /// Nome do supervisor. Texto da origem, nao vinculo com `Usuario` -- ele
+  /// participa da reuniao do N4 sem ter login no portal.
+  supervisor String?
+
+  filial     Filial            @relation(fields: [filialId], references: [id], map: "dimensao_area_venda_filial_fk")
+  gerencia   DimGerencia       @relation(fields: [gerenciaId], references: [id], map: "dimensao_area_venda_dimensao_gerencia_fk")
+  linhas     DimLinha[]
+  fatoVendas FatoVendasLinha[]
+  vendedores DimVendedor[]
+
+  @@unique([filialId, cdArea], map: "dimensao_area_venda_uk01")
+  @@index([filialId], map: "dimensao_area_venda_idx01")
+  @@index([gerenciaId], map: "dimensao_area_venda_idx02")
+  /// Nao e' unico de proposito: `nome` virou rotulo, e duas areas com a mesma
+  /// descricao na origem devem entrar as duas -- visivelmente iguais na tela,
+  /// que e' problema do cadastro, em vez de a carga inteira ser recusada.
+  @@index([filialId, nome], map: "dimensao_area_venda_idx03")
+  @@map("dimensao_area_venda")
+}
+
+/// ORFA DESDE 18/09/2026, e de proposito.
+///
+/// Ela servia ao grao por LINHA DE PRODUTO de `FatoVendasLinha`, que deixou de
+/// existir: nenhuma tela lia a linha, e a unica consulta que toca o fato agrupa
+/// por area de venda. A carga parou de escrever aqui, e o fato nao aponta mais
+/// para ca'.
+///
+/// A tabela FICA, por decisao do analista: derruba-la exigiria um DROP na GMUD
+/// sem nenhuma mudanca de comportamento. As 11.767 linhas que ela guarda estao
+/// congeladas no estado da ultima carga.
+///
+/// SE FOR REMOVIDA UM DIA, saem juntas: este model, a relacao `linhas` em
+/// `Filial` e em `DimAreaVenda`, e a tabela no banco.
+model DimLinha {
+  id          String @id(map: "dimensao_linha_pk") @default(uuid()) @db.Uuid
+  filialId    String @map("filial_id") @db.Uuid
+  nome        String
+  areaVendaId String @map("area_venda_id") @db.Uuid
+
+  filial     Filial            @relation(fields: [filialId], references: [id], map: "dimensao_linha_filial_fk")
+  areaVenda  DimAreaVenda      @relation(fields: [areaVendaId], references: [id], map: "dimensao_linha_dimensao_area_venda_fk")
+
+  @@unique([filialId, nome], map: "dimensao_linha_uk01")
+  @@index([areaVendaId], map: "dimensao_linha_idx01")
+  @@index([filialId], map: "dimensao_linha_idx02")
+  @@map("dimensao_linha")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Catálogo de indicadores
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Indicador {
+  vendaAreaMes VendaAreaMes[]
+  id           String         @id(map: "indicador_pk") @default(uuid()) @db.Uuid
+  codigo       String         @unique(map: "indicador_uk01") @db.VarChar(30)
+  nome         String
+  unidade      String
+  sentido      Sentido
+  /// Rótulos e posições do eixo Y do gráfico, conforme handoff.
+  /// Ex.: [{ "rotulo": "6,0%", "y": 20 }, { "rotulo": "4,0% · meta", "y": 127 }]
+  escalaY      Json           @map("escala_y")
+  /// Limiares de status sobre o desvio %. Ex.: { "critico": 20, "risco": 0 }
+  regraStatus  Json           @map("regra_status")
+  ordem        Int
+
+  /// Indicador pai, quando este é um desdobramento (drill-down) de outro.
+  ///
+  /// Existe SÓ para a árvore da tela: o painel mostra os de pai nulo e abre os
+  /// filhos no `+`. Em todo o resto um filho é um indicador comum — tem fato
+  /// próprio, meta própria, unidade, sentido e regra de status próprios.
+  ///
+  /// Nulo = indicador de primeiro nível.
+  indicadorPaiId String? @map("indicador_pai_id") @db.Uuid
+
+  /// Tira de vista sem apagar.
+  ///
+  /// Aposentar um indicador não pode significar apagar a linha: metas, fatos e
+  /// contramedidas apontam para ela, e o histórico do que já foi medido some
+  /// junto. Falso remove da tela e preserva tudo. Mesma solução de `filial.ativa`
+  /// e `ponto_causa.ativo`.
+  ativo Boolean @default(true)
+
+  pai    Indicador?  @relation("HierarquiaIndicador", fields: [indicadorPaiId], references: [id], map: "indicador_indicador_fk")
+  filhos Indicador[] @relation("HierarquiaIndicador")
+
+  variaveis       VariavelControle[]
+  contramedidas   Contramedida[]
+  fatoVendas      FatoVendas[]
+  fatoVendasLinha FatoVendasLinha[]
+  fatoNps         FatoNps[]
+  fatoPerdas      FatoPerdas[]
+  fatoCusto       FatoCusto[]
+
+  @@index([indicadorPaiId], map: "indicador_idx01")
+  @@map("indicador")
+}
+
+model VariavelControle {
+  id          String  @id(map: "variavel_controle_pk") @default(uuid()) @db.Uuid
+  indicadorId String  @map("indicador_id") @db.Uuid
+  nome        String
+  unidade     String
+  sentido     Sentido
+  ordem       Int
+  /// Tira de vista sem apagar. Ver o comentário em `Indicador.ativo`.
+  ativo       Boolean @default(true)
+
+  indicador     Indicador          @relation(fields: [indicadorId], references: [id], map: "variavel_controle_indicador_fk")
+  pontosCausa   PontoCausa[]
+  contramedidas Contramedida[]
+  gerencias     GerenciaVariavel[]
+  perfis        PerfilVariavel[]
+
+  @@unique([indicadorId, nome], map: "variavel_controle_uk01")
+  @@index([indicadorId], map: "variavel_controle_idx01")
+  @@map("variavel_controle")
+}
+
+model PontoCausa {
+  id                 String  @id(map: "ponto_causa_pk") @default(uuid()) @db.Uuid
+  variavelControleId String  @map("variavel_controle_id") @db.Uuid
+  nome               String
+  /// Filtra a lista de causa raiz ao criar uma ação para este bucket.
+  bucketId           String? @map("bucket_id") @db.Uuid
+  ordem              Int
+  ativo              Boolean @default(true)
+
+  variavelControle VariavelControle       @relation(fields: [variavelControleId], references: [id], map: "ponto_causa_variavel_controle_fk")
+  ocorrencias      OcorrenciaPontoCausa[]
+  bucket           Bucket?                @relation(fields: [bucketId], references: [id], map: "ponto_causa_agrupamento_fk")
+  contramedidas    Contramedida[]
+
+  @@unique([variavelControleId, nome], map: "ponto_causa_uk01")
+  @@index([bucketId], map: "ponto_causa_idx01")
+  @@index([variavelControleId], map: "ponto_causa_idx02")
+  @@map("ponto_causa")
+}
+
+/// Meta por filial e mês. `mes` é sempre 1–12: a meta anual é agregada com a
+/// mesma aritmética do indicador (soma para Vendas, razão para os demais),
+/// garantindo que meta e realizado nunca sejam agregados de formas diferentes.
+/// ATENÇÃO: `alvo_id` é protegido por TRIGGER, não por chave estrangeira.
+///
+/// A coluna aponta ora para `indicador`, ora para `variavel_controle`, conforme
+/// `escopo` — e uma FK aponta para uma tabela só. A validação vive no banco, em
+/// `fnc_valida_alvo_meta` (grava) e `fnc_impede_alvo_com_meta` (apaga), criadas
+/// na migração `20260824200000_meta_integridade`.
+///
+/// Está escrito aqui porque o Prisma não modela trigger: sem este comentário, a
+/// regra existiria no banco e em lugar nenhum que um desenvolvedor leia.
+///
+/// Apagar indicador ou variável que tem meta é RECUSADO. Para aposentar, use a
+/// coluna `ativo` — apagar destruiria histórico em silêncio.
+model Meta {
+  id       String     @id(map: "meta_pk") @default(uuid()) @db.Uuid
+  escopo   EscopoMeta
+  alvoId   String     @map("alvo_id") @db.Uuid
+  filialId String     @map("filial_id") @db.Uuid
+  ano      Int
+  mes      Int
+  valor    Decimal    @db.Decimal(18, 4)
+
+  filial Filial @relation(fields: [filialId], references: [id], map: "meta_filial_fk")
+
+  @@unique([escopo, alvoId, filialId, ano, mes], map: "meta_uk01")
+  @@index([filialId, ano, mes], map: "meta_idx01")
+  @@index([filialId], map: "meta_idx02")
+  @@map("meta")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tabelas fato
+//
+// Carga por SUBSTITUIÇÃO DE JANELA, não upsert linha a linha:
+//   BEGIN; DELETE WHERE data BETWEEN :de AND :ate; INSERT …; COMMIT;
+// Upsert puro nunca apaga a linha que sumiu da origem (quebra rejeitada,
+// estorno) e o número fica alto sem sintoma nenhum.
+// O DELETE é SEMPRE limitado à janela declarada no payload — varrer a tabela
+// apagaria o histórico e esvaziaria o gráfico anual.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Agregado por filial e dia — 2 anos de histórico.
+/// Única origem do indicador Vendas e do faturamento que serve de denominador
+/// ao Custo.
+///
+/// Três colunas com papéis distintos:
+///  - `valorReal`  o que de fato foi vendido no dia. Soma para formar o mês
+///                 fechado e é o faturamento usado pelo Custo.
+///  - `tendencia`  previsão de onde o mês vai fechar, vigente naquele dia.
+///  - `deltaMeta`  desvio % da tendência sobre a meta, calculado na origem.
+///
+/// Por que a origem manda o delta pronto: no mês vigente, comparar acumulado
+/// contra meta de mês cheio pinta de vermelho uma filial adiantada (dia 18 de
+/// 31, com 87% do alvo feito, apareceria como −13%). A tendência resolve isso
+/// na raiz — previsão de mês fechado contra meta de mês fechado.
+model FatoVendas {
+  id           String   @id(map: "fato_venda_pk") @default(uuid()) @db.Uuid
+  filialId     String   @map("filial_id") @db.Uuid
+  /// Indicador a que este fato pertence.
+  ///
+  /// Ate 24/08/2026 o vinculo estava no NOME da tabela: `fato_venda`
+  /// significava vendas porque se chamava assim. Com indicadores filhos
+  /// isso deixa de funcionar - `Vendas construcao` tem fato proprio, com a
+  /// mesma forma. A coluna torna explicito o que era implicito.
+  ///
+  /// ATENCAO: a ingestao substitui JANELA. O `DELETE` do periodo tem de
+  /// filtrar por este campo, senao carregar um filho apaga o pai.
+  indicadorId  String   @map("indicador_id") @db.Uuid
+  data         DateTime @db.Date
+  valorReal    Decimal  @map("valor_real") @db.Decimal(18, 2)
+  tendencia    Decimal  @db.Decimal(18, 2)
+  /// Desvio da tendência sobre a meta, calculado na ORIGEM.
+  /// Opcional: quando a origem não dispõe dessa conta, fica nulo e o portal
+  /// deriva o desvio da meta que ele próprio tem. Preferimos o número da
+  /// origem quando existe, para o portal não discordar do relatório oficial.
+  deltaMeta    Decimal? @map("delta_meta") @db.Decimal(9, 4)
+  syncId       String   @map("sync_id") @db.Uuid
+  atualizadoEm DateTime @default(now()) @updatedAt @map("atualizado_em")
+
+  filial    Filial       @relation(fields: [filialId], references: [id], map: "fato_venda_filial_fk")
+  sync      SyncExecucao @relation(fields: [syncId], references: [id], map: "fato_venda_execucao_sincronizacao_fk")
+  indicador Indicador    @relation(fields: [indicadorId], references: [id], map: "fato_venda_indicador_fk")
+
+  @@unique([filialId, data, indicadorId], map: "fato_venda_uk01")
+  @@index([data], map: "fato_venda_idx01")
+  @@index([filialId], map: "fato_venda_idx02")
+  @@index([syncId], map: "fato_venda_idx03")
+  @@index([indicadorId], map: "fato_venda_idx04")
+  @@map("fato_venda")
+}
+
+/// Detalhe por linha — apenas 2 meses de histórico (a origem não guarda mais
+/// que isso nesse grão). Serve só ao drill-down; o indicador jamais lê daqui.
+///
+/// Padrão agregado + detalhe. O risco dele é as duas tabelas divergirem: se
+/// `SUM(fato_vendas_linha.valor)` de um dia não bater com `fato_vendas.valor`
+/// do mesmo dia, o painel mostra um número e o drill-down outro, e não há como
+/// saber qual está certo. Por isso a ingestão do detalhe VALIDA a soma contra o
+/// agregado e recusa a carga inteira se divergir — falhar a carga é melhor que
+/// servir dois números.
+/// Resumo MENSAL da venda por area — o historico que o detalhe nao pode guardar.
+///
+/// `fato_venda_linha` e a unica tabela que sabe a gerencia de uma venda, e ela
+/// retem 60 dias: e detalhe, para o ciclo corrente. Um ano dela sao ~2 milhoes
+/// de linhas e 506 MB, medido em 03/09/2026. O mesmo ano resumido por (area,
+/// mes) sao ~2.200 linhas -- 890 vezes menor.
+///
+/// Por AREA e nao por gerencia, embora o grafico seja de gerencia: e o grao mais
+/// fino que ainda e minusculo, e a gerencia sai SOMANDO. Guardar so por gerencia
+/// economizaria 1 MB e fecharia a porta para o historico por area.
+///
+/// NAO guarda a meta. Ela ja vive em `meta` por (area, competencia) e nao e
+/// expurgada -- gravar de novo criaria duas verdades sobre o mesmo numero, e
+/// elas divergiriam no dia em que alguem corrigisse uma so.
+///
+/// A gerencia e congelada como no detalhe, e pelo mesmo motivo: a area pode
+/// mudar de gerencia, e derivar da dimensao faria a venda de marco passar a
+/// contar para a gerencia de hoje.
+model VendaAreaMes {
+  id           String   @id(map: "venda_area_mes_pk") @default(uuid()) @db.Uuid
+  filialId     String   @map("filial_id") @db.Uuid
+  indicadorId  String   @map("indicador_id") @db.Uuid
+  areaVendaId  String   @map("area_venda_id") @db.Uuid
+  /// A gerencia NO PERIODO, congelada. Ver o comentario do modelo.
+  gerenciaId   String   @map("gerencia_id") @db.Uuid
+  ano          Int
+  mes          Int
+  /// Soma de `fato_venda_linha.valor` no mes.
+  vendido      Decimal  @db.Decimal(18, 2)
+  /// Dias com venda no mes -- distingue "mes fechado" de "mes em curso".
+  dias         Int
+  atualizadoEm DateTime @default(now()) @updatedAt @map("atualizado_em")
+
+  filial    Filial       @relation(fields: [filialId], references: [id], map: "venda_area_mes_filial_fk")
+  indicador Indicador    @relation(fields: [indicadorId], references: [id], map: "venda_area_mes_indicador_fk")
+  areaVenda DimAreaVenda @relation(fields: [areaVendaId], references: [id], map: "venda_area_mes_dimensao_area_venda_fk")
+  gerencia  DimGerencia  @relation(fields: [gerenciaId], references: [id], map: "venda_area_mes_dimensao_gerencia_fk")
+
+  @@unique([filialId, areaVendaId, indicadorId, ano, mes], map: "venda_area_mes_uk01")
+  @@index([filialId, ano, mes], map: "venda_area_mes_idx01")
+  @@index([gerenciaId], map: "venda_area_mes_idx02")
+  /// Um indice por chave estrangeira, como o padrao exige. O composto acima
+  /// nao vale pela FK de filial: sao outras colunas.
+  @@index([areaVendaId], map: "venda_area_mes_idx03")
+  @@index([indicadorId], map: "venda_area_mes_idx04")
+  @@index([filialId], map: "venda_area_mes_idx05")
+  @@map("venda_area_mes")
+}
+
+/// Resumo MENSAL de Performance Vendedor por area -- o historico do indicador.
+///
+/// Guarda a CONTA JA FEITA, e nao os insumos: `aptos` e `na_meta` sao o
+/// resultado de `contaNoDenominador` e `bateuMeta`, aplicadas quando o detalhe
+/// do mes ainda existia. `fato_venda_vendedor` retem 60 dias, e depois disso o
+/// realizado nao existe mais para refazer a conta.
+model VendedorAreaMes {
+  id           String   @id(map: "vendedor_area_mes_pk") @default(uuid()) @db.Uuid
+  filialId     String   @map("filial_id") @db.Uuid
+  areaVendaId  String   @map("area_venda_id") @db.Uuid
+  /// A gerencia NO MOMENTO DA CONSOLIDACAO, congelada -- como em VendaAreaMes.
+  gerenciaId   String   @map("gerencia_id") @db.Uuid
+  ano          Int
+  mes          Int
+  /// Denominador: quem contava no mes (`contaNoDenominador`).
+  aptos        Int
+  /// Numerador: quantos desses bateram a propria cota.
+  naMeta       Int      @map("na_meta")
+  /// Dias com venda no mes -- a trava contra o resumo encolher.
+  dias         Int
+  atualizadoEm DateTime @default(now()) @updatedAt @map("atualizado_em")
+
+  filial    Filial       @relation(fields: [filialId], references: [id], map: "vendedor_area_mes_filial_fk")
+  areaVenda DimAreaVenda @relation(fields: [areaVendaId], references: [id], map: "vendedor_area_mes_dimensao_area_venda_fk")
+  gerencia  DimGerencia  @relation(fields: [gerenciaId], references: [id], map: "vendedor_area_mes_dimensao_gerencia_fk")
+
+  @@unique([filialId, areaVendaId, ano, mes], map: "vendedor_area_mes_uk01")
+  @@index([filialId, ano, mes], map: "vendedor_area_mes_idx01")
+  @@index([gerenciaId], map: "vendedor_area_mes_idx02")
+  /// Um indice por chave estrangeira, como o padrao exige.
+  @@index([areaVendaId], map: "vendedor_area_mes_idx03")
+  @@index([filialId], map: "vendedor_area_mes_idx04")
+  @@map("vendedor_area_mes")
+}
+
+model FatoVendasLinha {
+  id           String   @id(map: "fato_venda_linha_pk") @default(uuid()) @db.Uuid
+  filialId     String   @map("filial_id") @db.Uuid
+  /// Indicador a que este fato pertence.
+  ///
+  /// Ate 24/08/2026 o vinculo estava no NOME da tabela: `fato_venda`
+  /// significava vendas porque se chamava assim. Com indicadores filhos
+  /// isso deixa de funcionar - `Vendas construcao` tem fato proprio, com a
+  /// mesma forma. A coluna torna explicito o que era implicito.
+  ///
+  /// ATENCAO: a ingestao substitui JANELA. O `DELETE` do periodo tem de
+  /// filtrar por este campo, senao carregar um filho apaga o pai.
+  indicadorId  String   @map("indicador_id") @db.Uuid
+  data         DateTime @db.Date
+  /// Area de venda e gerencia NO DIA da venda.
+  ///
+  /// Congeladas de proposito, em vez de sairem da dimensao: a area pode mudar
+  /// de gerencia, e derivar da dimensao faria as vendas de marco passarem a
+  /// contar para a gerencia de hoje -- o historico do GD mudaria sozinho sem
+  /// ninguem ter tocado em fato nenhum.
+  areaVendaId  String   @map("area_venda_id") @db.Uuid
+  gerenciaId   String   @map("gerencia_id") @db.Uuid
+  valor        Decimal  @db.Decimal(18, 2)
+  syncId       String   @map("sync_id") @db.Uuid
+  atualizadoEm DateTime @default(now()) @updatedAt @map("atualizado_em")
+
+  filial    Filial       @relation(fields: [filialId], references: [id], map: "fato_venda_linha_filial_fk")
+  areaVenda DimAreaVenda @relation(fields: [areaVendaId], references: [id], map: "fato_venda_linha_dimensao_area_venda_fk")
+  gerencia  DimGerencia  @relation(fields: [gerenciaId], references: [id], map: "fato_venda_linha_dimensao_gerencia_fk")
+  sync      SyncExecucao @relation(fields: [syncId], references: [id], map: "fato_venda_linha_execucao_sincronizacao_fk")
+  indicador Indicador    @relation(fields: [indicadorId], references: [id], map: "fato_venda_linha_indicador_fk")
+
+  /// A chave era `filial + data + LINHA DE PRODUTO + indicador` ate 18/09/2026.
+  /// Passou a ser por AREA DE VENDA junto com o grao do fato -- nenhuma tela
+  /// lia a linha, e guardar por linha custava 33x mais registro. Ver o
+  /// cabecalho de `src/fontes/sql/vendas-linha.sql`.
+  @@unique([filialId, data, areaVendaId, indicadorId], map: "fato_venda_linha_uk01")
+  @@index([data], map: "fato_venda_linha_idx01")
+  @@index([filialId], map: "fato_venda_linha_idx02")
+  @@index([syncId], map: "fato_venda_linha_idx04")
+  @@index([indicadorId], map: "fato_venda_linha_idx05")
+  @@index([areaVendaId], map: "fato_venda_linha_idx06")
+  @@index([gerenciaId], map: "fato_venda_linha_idx07")
+  @@map("fato_venda_linha")
+}
+
+/// Cadastro do vendedor: quem e' e em que area de venda esta HOJE.
+///
+/// De `vendedor-area.sql`. Ver PLANO 7.14.
+///
+/// A area NAO e' congelada em lugar nenhum -- nem aqui nem em `VendedorMes`.
+/// E' decisao consciente, e diferente da de `FatoVendasLinha`: la' a area do
+/// dia da venda importa porque o total da gerencia e' historico; aqui a
+/// pergunta e' "quantos vendedores DESTA area bateram meta", e a area e' a de
+/// agora. Consequencia aceita: o Pareto de um mes fechado mostra o vendedor na
+/// area atual dele, nao na de entao.
+model DimVendedor {
+  id          String  @id(map: "dimensao_vendedor_pk") @default(uuid()) @db.Uuid
+  filialId    String  @map("filial_id") @db.Uuid
+  /// `AGTV.CODIGO`. E' a chave da origem e a que liga as quatro consultas entre
+  /// si -- NAO a matricula, que pode ser nula.
+  codVendedor String  @map("cod_vendedor")
+  /// Nula em conta generica: ponto de venda nao e' pessoa e nao tem matricula.
+  /// E' a ponte para o colaborador e para o usuario do portal, nunca a chave.
+  matricula   String?
+  nome        String
+  areaVendaId String  @map("area_venda_id") @db.Uuid
+
+  filial     Filial              @relation(fields: [filialId], references: [id], map: "dimensao_vendedor_filial_fk")
+  areaVenda  DimAreaVenda        @relation(fields: [areaVendaId], references: [id], map: "dimensao_vendedor_dimensao_area_venda_fk")
+  fatoVendas FatoVendaVendedor[]
+  meses      VendedorMes[]
+
+  @@unique([filialId, codVendedor], map: "dimensao_vendedor_uk01")
+  @@index([filialId], map: "dimensao_vendedor_idx01")
+  @@index([areaVendaId], map: "dimensao_vendedor_idx02")
+  @@index([matricula], map: "dimensao_vendedor_idx03")
+  @@map("dimensao_vendedor")
+}
+
+/// Venda do vendedor por DIA. De `vendedor-dia.sql`.
+///
+/// Sem `indicador_id`, diferente de `FatoVendasLinha`: la' a coluna existe
+/// porque indicadores FILHOS gravam na mesma tabela e o DELETE da janela
+/// precisa distinguir. Performance Vendedor nao tem filhos, e uma coluna que
+/// so' pode ter um valor e' ruido que o proximo leitor tenta interpretar.
+model FatoVendaVendedor {
+  id           String   @id(map: "fato_venda_vendedor_pk") @default(uuid()) @db.Uuid
+  filialId     String   @map("filial_id") @db.Uuid
+  data         DateTime @db.Date
+  vendedorId   String   @map("vendedor_id") @db.Uuid
+  /// `LIQUIDA`: venda menos devolucao mais refaturamento.
+  ///
+  /// NAO e' a mesma medida de `FatoVendasLinha` (`VALOR_TOTAL`, com despesa,
+  /// juro, frete e ICMS ST), e os filtros tambem diferem. A soma das duas NAO
+  /// BATE, e nao deve -- e' contra `LIQUIDA` que a cota do vendedor foi
+  /// orcada. Nao existe validacao cruzada entre elas, de proposito.
+  valor        Decimal  @db.Decimal(18, 2)
+  syncId       String   @map("sync_id") @db.Uuid
+  atualizadoEm DateTime @default(now()) @updatedAt @map("atualizado_em")
+
+  filial   Filial       @relation(fields: [filialId], references: [id], map: "fato_venda_vendedor_filial_fk")
+  vendedor DimVendedor  @relation(fields: [vendedorId], references: [id], map: "fato_venda_vendedor_dimensao_vendedor_fk")
+  sync     SyncExecucao @relation(fields: [syncId], references: [id], map: "fato_venda_vendedor_execucao_sincronizacao_fk")
+
+  @@unique([filialId, data, vendedorId], map: "fato_venda_vendedor_uk01")
+  @@index([data], map: "fato_venda_vendedor_idx01")
+  @@index([filialId], map: "fato_venda_vendedor_idx02")
+  @@index([vendedorId], map: "fato_venda_vendedor_idx03")
+  @@index([syncId], map: "fato_venda_vendedor_idx04")
+  @@map("fato_venda_vendedor")
+}
+
+/// Situacao e COTA do vendedor no mes. De `vendedor-situacao.sql`.
+///
+/// A cota nao vai para `Meta` com um `EscopoMeta.VENDEDOR`, e a razao e' que
+/// ela chega na MESMA linha da situacao: separa-las obrigaria duas gravacoes a
+/// partir de uma consulta so', e um dia uma passaria sem a outra.
+///
+/// A CARGA TEM DE REESCREVER, NAO SO' INSERIR. `houveVenda` e' calculada com
+/// `SYSDATE` na origem: enquanto o mes corre todo mundo e' MES_EM_VIGOR, e
+/// quando fecha a mesma linha vira COM_VENDA ou SEM_VENDA. Carga so'-insercao
+/// congelaria o mes inteiro como MES_EM_VIGOR e o denominador nunca mais
+/// mudaria -- sem erro, com numero plausivel na tela.
+model VendedorMes {
+  id           String     @id(map: "vendedor_mes_pk") @default(uuid()) @db.Uuid
+  filialId     String     @map("filial_id") @db.Uuid
+  vendedorId   String     @map("vendedor_id") @db.Uuid
+  ano          Int
+  mes          Int
+  /// `COTA_MENSAL`. Zero significa sem meta definida, e quem tem zero fica FORA
+  /// do denominador -- nao entra como "nao bateu". Ver `contaNoDenominador`.
+  meta         Decimal    @db.Decimal(18, 2)
+  /// Situacao funcional. 7 e' quem nao esta trabalhando.
+  sitafa       Int
+  houveVenda   HouveVenda @map("houve_venda")
+  syncId       String     @map("sync_id") @db.Uuid
+  atualizadoEm DateTime   @default(now()) @updatedAt @map("atualizado_em")
+
+  filial   Filial       @relation(fields: [filialId], references: [id], map: "vendedor_mes_filial_fk")
+  vendedor DimVendedor  @relation(fields: [vendedorId], references: [id], map: "vendedor_mes_dimensao_vendedor_fk")
+  sync     SyncExecucao @relation(fields: [syncId], references: [id], map: "vendedor_mes_execucao_sincronizacao_fk")
+
+  @@unique([filialId, vendedorId, ano, mes], map: "vendedor_mes_uk01")
+  @@index([filialId], map: "vendedor_mes_idx01")
+  @@index([vendedorId], map: "vendedor_mes_idx02")
+  @@index([ano, mes], map: "vendedor_mes_idx03")
+  @@index([syncId], map: "vendedor_mes_idx04")
+  @@map("vendedor_mes")
+}
+
+/// Calendario de dias uteis, POR FILIAL. De `dias-uteis.sql`.
+///
+/// Por filial, e isso NAO e' refinamento: medido na origem em 27/08/2026,
+/// agosto teve QTUTIL 26 na filial 1 (cinco domingos marcados) e 31 na filial 2
+/// (nenhum). Norte abre domingo. Uma regra de dia da semana escrita no
+/// portal inflaria a cota diaria dela em ~19% e poria a loja inteira fora da
+/// meta todo dia. QUEM DECIDE E A TABELA -- aqui so' se guarda o que ela diz.
+model DiaUtil {
+  id           String   @id(map: "dia_util_pk") @default(uuid()) @db.Uuid
+  filialId     String   @map("filial_id") @db.Uuid
+  data         DateTime @db.Date
+  diaUtil      Boolean  @map("dia_util")
+  /// Dias uteis decorridos no mes ate e inclusive este dia. Numerador do rateio.
+  acumuladoDia Int      @map("acumulado_dia")
+  /// Dias uteis do mes, COMO A ORIGEM CONTA (`QTUTIL`). Divisor do rateio.
+  ///
+  /// Repetido em todo dia do mes de proposito: guardar por competencia exigiria
+  /// uma segunda tabela e um join para responder a pergunta mais comum da tela.
+  /// A ingestao ja' conferiu que ele bate com a contagem propria -- e' o unico
+  /// lugar onde a leitura de `FERIADO<n>` pode ser questionada.
+  uteisDoMes   Int      @map("uteis_do_mes")
+  syncId       String   @map("sync_id") @db.Uuid
+  atualizadoEm DateTime @default(now()) @updatedAt @map("atualizado_em")
+
+  filial Filial       @relation(fields: [filialId], references: [id], map: "dia_util_filial_fk")
+  sync   SyncExecucao @relation(fields: [syncId], references: [id], map: "dia_util_execucao_sincronizacao_fk")
+
+  @@unique([filialId, data], map: "dia_util_uk01")
+  @@index([filialId], map: "dia_util_idx01")
+  @@index([data], map: "dia_util_idx02")
+  @@index([syncId], map: "dia_util_idx03")
+  @@map("dia_util")
+}
+
+model FatoNps {
+  id            String   @id(map: "fato_nps_pk") @default(uuid()) @db.Uuid
+  filialId      String   @map("filial_id") @db.Uuid
+  /// Indicador a que este fato pertence.
+  ///
+  /// Ate 24/08/2026 o vinculo estava no NOME da tabela: `fato_venda`
+  /// significava vendas porque se chamava assim. Com indicadores filhos
+  /// isso deixa de funcionar - `Vendas construcao` tem fato proprio, com a
+  /// mesma forma. A coluna torna explicito o que era implicito.
+  ///
+  /// ATENCAO: a ingestao substitui JANELA. O `DELETE` do periodo tem de
+  /// filtrar por este campo, senao carregar um filho apaga o pai.
+  indicadorId   String   @map("indicador_id") @db.Uuid
+  data          DateTime @db.Date
+  qtdPromotores Int      @map("qtd_promotores")
+  qtdNeutros    Int      @map("qtd_neutros")
+  qtdDetratores Int      @map("qtd_detratores")
+  syncId        String   @map("sync_id") @db.Uuid
+  atualizadoEm  DateTime @default(now()) @updatedAt @map("atualizado_em")
+
+  filial    Filial       @relation(fields: [filialId], references: [id], map: "fato_nps_filial_fk")
+  sync      SyncExecucao @relation(fields: [syncId], references: [id], map: "fato_nps_execucao_sincronizacao_fk")
+  indicador Indicador    @relation(fields: [indicadorId], references: [id], map: "fato_nps_indicador_fk")
+
+  @@unique([filialId, data, indicadorId], map: "fato_nps_uk01")
+  @@index([data], map: "fato_nps_idx01")
+  @@index([filialId], map: "fato_nps_idx02")
+  @@index([syncId], map: "fato_nps_idx03")
+  @@index([indicadorId], map: "fato_nps_idx04")
+  @@map("fato_nps")
+}
+
+model FatoPerdas {
+  id           String       @id(map: "fato_perda_pk") @default(uuid()) @db.Uuid
+  filialId     String       @map("filial_id") @db.Uuid
+  /// Indicador a que este fato pertence.
+  ///
+  /// Ate 24/08/2026 o vinculo estava no NOME da tabela: `fato_venda`
+  /// significava vendas porque se chamava assim. Com indicadores filhos
+  /// isso deixa de funcionar - `Vendas construcao` tem fato proprio, com a
+  /// mesma forma. A coluna torna explicito o que era implicito.
+  ///
+  /// ATENCAO: a ingestao substitui JANELA. O `DELETE` do periodo tem de
+  /// filtrar por este campo, senao carregar um filho apaga o pai.
+  indicadorId  String       @map("indicador_id") @db.Uuid
+  data         DateTime     @db.Date
+  tipoQuebra   TipoQuebra   @map("tipo_quebra")
+  status       StatusQuebra
+  valor        Decimal      @db.Decimal(18, 2)
+  syncId       String       @map("sync_id") @db.Uuid
+  atualizadoEm DateTime     @default(now()) @updatedAt @map("atualizado_em")
+
+  filial    Filial       @relation(fields: [filialId], references: [id], map: "fato_perda_filial_fk")
+  sync      SyncExecucao @relation(fields: [syncId], references: [id], map: "fato_perda_execucao_sincronizacao_fk")
+  indicador Indicador    @relation(fields: [indicadorId], references: [id], map: "fato_perda_indicador_fk")
+
+  @@unique([filialId, data, tipoQuebra, status, indicadorId], map: "fato_perda_uk01")
+  @@index([data], map: "fato_perda_idx01")
+  @@index([filialId], map: "fato_perda_idx02")
+  @@index([syncId], map: "fato_perda_idx03")
+  @@index([indicadorId], map: "fato_perda_idx04")
+  @@map("fato_perda")
+}
+
+model FatoMovimentacao {
+  id           String   @id(map: "fato_movimentacao_pk") @default(uuid()) @db.Uuid
+  filialId     String   @map("filial_id") @db.Uuid
+  data         DateTime @db.Date
+  valor        Decimal  @db.Decimal(18, 2)
+  syncId       String   @map("sync_id") @db.Uuid
+  atualizadoEm DateTime @default(now()) @updatedAt @map("atualizado_em")
+
+  filial Filial       @relation(fields: [filialId], references: [id], map: "fato_movimentacao_filial_fk")
+  sync   SyncExecucao @relation(fields: [syncId], references: [id], map: "fato_movimentacao_execucao_sincronizacao_fk")
+
+  @@unique([filialId, data], map: "fato_movimentacao_uk01")
+  @@index([data], map: "fato_movimentacao_idx01")
+  @@index([filialId], map: "fato_movimentacao_idx02")
+  @@index([syncId], map: "fato_movimentacao_idx03")
+  @@map("fato_movimentacao")
+}
+
+/// Lançamento MANUAL de fechamento — não vem do n8n. Ver PLANO.md 5.2.3.
+/// Denominador da fórmula é o faturamento, que é Σ FatoVendas.valor do mês:
+/// logo o Custo depende da carga de Vendas, e o selo "ATUALIZADO" dele usa a
+/// mais antiga das duas sincronizações.
+model FatoCusto {
+  id           String   @id(map: "fato_custo_pk") @default(uuid()) @db.Uuid
+  filialId     String   @map("filial_id") @db.Uuid
+  /// Indicador a que este fato pertence.
+  ///
+  /// Ate 24/08/2026 o vinculo estava no NOME da tabela: `fato_venda`
+  /// significava vendas porque se chamava assim. Com indicadores filhos
+  /// isso deixa de funcionar - `Vendas construcao` tem fato proprio, com a
+  /// mesma forma. A coluna torna explicito o que era implicito.
+  ///
+  /// ATENCAO: a ingestao substitui JANELA. O `DELETE` do periodo tem de
+  /// filtrar por este campo, senao carregar um filho apaga o pai.
+  indicadorId  String   @map("indicador_id") @db.Uuid
+  ano          Int
+  mes          Int
+  valor        Decimal  @db.Decimal(18, 2)
+  lancadoPorId String   @map("lancado_por_id") @db.Uuid
+  lancadoEm    DateTime @default(now()) @map("lancado_em")
+  atualizadoEm DateTime @default(now()) @updatedAt @map("atualizado_em")
+
+  filial     Filial    @relation(fields: [filialId], references: [id], map: "fato_custo_filial_fk")
+  lancadoPor Usuario   @relation(fields: [lancadoPorId], references: [id], map: "fato_custo_usuario_fk")
+  indicador  Indicador @relation(fields: [indicadorId], references: [id], map: "fato_custo_indicador_fk")
+
+  @@unique([filialId, ano, mes, indicadorId], map: "fato_custo_uk01")
+  @@index([filialId], map: "fato_custo_idx01")
+  @@index([lancadoPorId], map: "fato_custo_idx02")
+  @@index([indicadorId], map: "fato_custo_idx03")
+  @@map("fato_custo")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pareto — gerado dentro do portal, nunca expurgado
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Marcacao de ponto de causa na reuniao do N4.
+///
+/// Uma linha por (ponto de causa, area de venda, ano, SEMANA), com a
+/// quantidade. Ate 26/08/2026 era uma linha por ocorrencia, com timestamp e
+/// filial -- e nesse formato "editar a marcacao da S3" nao tinha como
+/// acontecer, so' inserir mais uma. Ver PLANO 7.11.
+///
+/// FILIAL NAO ESTA AQUI de proposito: `dimensao_area_venda` ja' a tem. Manter
+/// as duas abriria a possibilidade de divergirem -- ocorrencia na CEN
+/// apontando area de venda da NOR, sem nada impedir.
+///
+/// O Pareto e' `SUM(quantidade) GROUP BY ponto_causa`, filtrado por area e
+/// periodo. Marcacoes sao registro historico de ocorrencia de problema:
+/// expurga-las destruiria o Pareto e deixaria contramedidas apontando para
+/// causa sem lastro.
+model OcorrenciaPontoCausa {
+  id           String         @id(map: "ocorrencia_ponto_causa_pk") @default(uuid()) @db.Uuid
+  pontoCausaId String         @map("ponto_causa_id") @db.Uuid
+  /// Contra o que esta ocorrencia foi marcada. Ver `EscopoMarcacao`.
+  escopo       EscopoMarcacao @default(AREA_VENDA)
+  /// O id do alvo, na tabela que `escopo` indica. SEM chave estrangeira: ela
+  /// nao aponta para duas tabelas. Quem valida e' a trigger, como em `Meta`.
+  alvoId       String         @map("alvo_id") @db.Uuid
+  ano          Int
+  mes          Int
+  /// Semana DO MES (1..5), nao semana ISO do ano.
+  ///
+  /// E' o que a grade da reuniao mostra (S1..S5) e o que o ciclo do GD usa -- o
+  /// ciclo e' o mes. A regra de quais dias caem em cada semana ja' existe em
+  /// `lib/semanas.ts`. Semana ISO obrigaria a traduzir S1..S5 para 31..35 toda
+  /// vez que a tela falasse com o banco, e e' nessa traducao que o off-by-one
+  /// mora.
+  semana       Int
+  /// Sempre maior que zero: celula zerada tem a linha REMOVIDA, nao zerada.
+  /// Guardar zero encheria o Pareto de causas que ninguem apontou.
+  quantidade   Int
+
+  /// Quem marcou por ultimo -- com contador editavel, e o autor da ultima
+  /// alteracao, nao o da primeira.
+  registradoPorId String   @map("registrado_por_id") @db.Uuid
+  /// Quando a marcacao foi feita. Comparado com `ano`+`semana`, revela
+  /// marcacao retroativa -- que e' PERMITIDA e fica visivel no dado, em vez de
+  /// proibida. Ver PLANO 7.8.
+  registradoEm    DateTime @default(now()) @map("registrado_em")
+  atualizadoEm    DateTime @default(now()) @updatedAt @map("atualizado_em")
+
+  pontoCausa    PontoCausa @relation(fields: [pontoCausaId], references: [id], map: "ocorrencia_ponto_causa_ponto_causa_fk")
+  registradoPor Usuario    @relation(fields: [registradoPorId], references: [id], map: "ocorrencia_ponto_causa_usuario_fk")
+
+  @@unique([pontoCausaId, escopo, alvoId, ano, mes, semana], map: "ocorrencia_ponto_causa_uk01")
+  @@index([pontoCausaId], map: "ocorrencia_ponto_causa_idx01")
+  @@index([alvoId], map: "ocorrencia_ponto_causa_idx02")
+  @@index([registradoPorId], map: "ocorrencia_ponto_causa_idx03")
+  @@index([alvoId, ano, mes], map: "ocorrencia_ponto_causa_idx04")
+  @@map("ocorrencia_ponto_causa")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Contramedidas
+//
+// status ('Em andamento' | 'Atrasada' | 'Escalada' | 'Concluída'), SLA
+// (ok/risco/crítico) e "em aberto há" NÃO são colunas: derivam de concluidaEm,
+// prazo, criadoEm e da última movimentação, na leitura. Coluna de status
+// envelhece sozinha — uma contramedida viraria "Atrasada" só com a passagem do
+// tempo, e precisaria de um job para isso.
+//
+// `codigo` vem da SEQUENCE contramedida_codigo_seq (ver migration), dentro da
+// transação de criação. MAX()+1 no app quebra sob concorrência.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Contramedida {
+  id                 String     @id(map: "contramedida_pk") @default(uuid()) @db.Uuid
+  codigo             String     @unique(map: "contramedida_uk01") @db.VarChar(20)
+  titulo             String
+  pdcRef             String?    @map("pdc_ref")
+  pontoCausaId       String?    @map("ponto_causa_id") @db.Uuid
+  variavelControleId String?    @map("variavel_controle_id") @db.Uuid
+  indicadorId        String?    @map("indicador_id") @db.Uuid
+  filialId           String     @map("filial_id") @db.Uuid
+  nivelAtual         Nivel      @map("nivel_atual")
+  bucketId           String     @map("bucket_id") @db.Uuid
+  responsavelAtualId String     @map("responsavel_atual_id") @db.Uuid
+  criadoPorId        String     @map("criado_por_id") @db.Uuid
+  criadoEm           DateTime   @default(now()) @map("criado_em")
+  prazo              DateTime   @db.Date
+  prioridade         Prioridade
+  concluidaEm        DateTime?  @map("concluida_em")
+  comentarioAbertura String     @map("comentario_abertura")
+  origem             String?
+
+  filial           Filial            @relation(fields: [filialId], references: [id], map: "contramedida_filial_fk")
+  bucket           Bucket            @relation(fields: [bucketId], references: [id], map: "contramedida_agrupamento_fk")
+  pontoCausa       PontoCausa?       @relation(fields: [pontoCausaId], references: [id], map: "contramedida_ponto_causa_fk")
+  variavelControle VariavelControle? @relation(fields: [variavelControleId], references: [id], map: "contramedida_variavel_controle_fk")
+  indicador        Indicador?        @relation(fields: [indicadorId], references: [id], map: "contramedida_indicador_fk")
+  responsavelAtual Usuario           @relation("ContramedidaResponsavel", fields: [responsavelAtualId], references: [id], map: "contramedida_usuario02_fk")
+  criadoPor        Usuario           @relation("ContramedidaCriador", fields: [criadoPorId], references: [id], map: "contramedida_usuario01_fk")
+
+  movimentacoes Movimentacao[]
+  comentarios   Comentario[]
+
+  @@index([nivelAtual, filialId], map: "contramedida_idx02")
+  @@index([responsavelAtualId], map: "contramedida_idx03")
+  @@index([criadoEm], map: "contramedida_idx01")
+  @@index([bucketId], map: "contramedida_idx04")
+  @@index([criadoPorId], map: "contramedida_idx05")
+  @@index([filialId], map: "contramedida_idx06")
+  @@index([indicadorId], map: "contramedida_idx07")
+  @@index([pontoCausaId], map: "contramedida_idx08")
+  @@index([responsavelAtualId], map: "contramedida_idx09")
+  @@index([variavelControleId], map: "contramedida_idx10")
+  @@map("contramedida")
+}
+
+/// Log imutável: só INSERT, nunca UPDATE nem DELETE. É a auditoria do fluxo.
+///
+/// ATENÇÃO à escalação para CROSS: ela NÃO transfere a responsabilidade.
+/// `nivelDestino = CROSS` e `bucketDestinoId` registram o setor de apoio, mas
+/// `responsavelDestinoId` aponta de volta para quem escalou — o setor de apoio
+/// é visibilidade, e quem age continua sendo o usuário do nível de origem.
+/// Contraria a leitura natural do campo, daí o destaque.
+model Movimentacao {
+  id                   String              @id(map: "movimentacao_pk") @default(uuid()) @db.Uuid
+  contramedidaId       String              @map("contramedida_id") @db.Uuid
+  tipo                 TipoMovimentacao
+  autorId              String              @map("autor_id") @db.Uuid
+  criadoEm             DateTime            @default(now()) @map("criado_em")
+  nivelOrigem          Nivel               @map("nivel_origem")
+  nivelDestino         Nivel               @map("nivel_destino")
+  bucketDestinoId      String?             @map("bucket_destino_id") @db.Uuid
+  responsavelDestinoId String              @map("responsavel_destino_id") @db.Uuid
+  motivo               String?
+  texto                String
+  novoPrazo            DateTime?           @map("novo_prazo") @db.Date
+  resultadoIndicador   ResultadoIndicador? @map("resultado_indicador")
+
+  contramedida       Contramedida @relation(fields: [contramedidaId], references: [id], map: "movimentacao_contramedida_fk")
+  autor              Usuario      @relation("MovimentacaoAutor", fields: [autorId], references: [id], map: "movimentacao_usuario01_fk")
+  responsavelDestino Usuario      @relation("MovimentacaoDestino", fields: [responsavelDestinoId], references: [id], map: "movimentacao_usuario02_fk")
+  bucketDestino      Bucket?      @relation(fields: [bucketDestinoId], references: [id], map: "movimentacao_agrupamento_fk")
+
+  @@index([contramedidaId, criadoEm], map: "movimentacao_idx01")
+  @@index([autorId], map: "movimentacao_idx02")
+  @@index([bucketDestinoId], map: "movimentacao_idx03")
+  @@index([contramedidaId], map: "movimentacao_idx04")
+  @@index([responsavelDestinoId], map: "movimentacao_idx05")
+  @@map("movimentacao")
+}
+
+/// Comentário fora do fluxo de escalação — não movimenta a contramedida.
+model Comentario {
+  id             String   @id(map: "comentario_pk") @default(uuid()) @db.Uuid
+  contramedidaId String   @map("contramedida_id") @db.Uuid
+  autorId        String   @map("autor_id") @db.Uuid
+  criadoEm       DateTime @default(now()) @map("criado_em")
+  texto          String
+
+  contramedida Contramedida @relation(fields: [contramedidaId], references: [id], map: "comentario_contramedida_fk")
+  autor        Usuario      @relation(fields: [autorId], references: [id], map: "comentario_usuario_fk")
+
+  @@index([contramedidaId, criadoEm], map: "comentario_idx01")
+  @@index([autorId], map: "comentario_idx02")
+  @@index([contramedidaId], map: "comentario_idx03")
+  @@map("comentario")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Operação
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Alimenta o selo "ATUALIZADO {hora}" do header, o diagnóstico quando um
+/// número parecer errado, e o alerta de "carga não chegou hoje".
+/// Dado obsoleto é pior que dado ausente: se a carga falha, o portal segue
+/// mostrando o último valor bom, mas o selo exibe a data DAQUELE dado.
+model SyncExecucao {
+  id              String     @id(map: "execucao_sincronizacao_pk") @default(uuid()) @db.Uuid
+  fonte           String     @db.VarChar(30)
+  iniciadoEm      DateTime   @default(now()) @map("iniciado_em")
+  finalizadoEm    DateTime?  @map("finalizado_em")
+  status          StatusSync @default(EM_ANDAMENTO)
+  periodoDe       DateTime   @map("periodo_de") @db.Date
+  periodoAte      DateTime   @map("periodo_ate") @db.Date
+  linhasRecebidas Int        @default(0) @map("linhas_recebidas")
+  linhasGravadas  Int        @default(0) @map("linhas_gravadas")
+  linhasRemovidas Int        @default(0) @map("linhas_removidas")
+  erro            String?
+  origemIp        String?    @map("origem_ip")
+
+  fatoVendas        FatoVendas[]
+  fatoVendasLinha   FatoVendasLinha[]
+  fatoNps           FatoNps[]
+  fatoPerdas        FatoPerdas[]
+  fatoMovimentacao  FatoMovimentacao[]
+  fatoVendaVendedor FatoVendaVendedor[]
+  vendedorMes       VendedorMes[]
+  diasUteis         DiaUtil[]
+
+  @@index([fonte, status, iniciadoEm], map: "execucao_sincronizacao_idx01")
+  @@map("execucao_sincronizacao")
+}
+
+model RefreshToken {
+  id         String    @id(map: "renovacao_sessao_pk") @default(uuid()) @db.Uuid
+  usuarioId  String    @map("usuario_id") @db.Uuid
+  tokenHash  String    @unique(map: "renovacao_sessao_uk01") @map("token_hash")
+  /// Rotação com detecção de reuso: se um token já usado reaparecer, toda a
+  /// família é revogada e o usuário precisa logar de novo.
+  familiaId  String    @map("familia_id") @db.Uuid
+  expiraEm   DateTime  @map("expira_em")
+  revogadoEm DateTime? @map("revogado_em")
+  userAgent  String?   @map("user_agent")
+  ip         String?
+  criadoEm   DateTime  @default(now()) @map("criado_em")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade, map: "renovacao_sessao_usuario_fk")
+
+  @@index([usuarioId], map: "renovacao_sessao_idx02")
+  @@index([familiaId], map: "renovacao_sessao_idx01")
+  @@index([usuarioId], map: "renovacao_sessao_idx03")
+  @@map("renovacao_sessao")
+}
+
+model AuditLog {
+  id         String   @id(map: "log_auditoria_pk") @default(uuid()) @db.Uuid
+  usuarioId  String?  @map("usuario_id") @db.Uuid
+  acao       String
+  entidade   String
+  entidadeId String?  @map("entidade_id")
+  payload    Json?
+  ip         String?
+  criadoEm   DateTime @default(now()) @map("criado_em")
+
+  usuario Usuario? @relation(fields: [usuarioId], references: [id], map: "log_auditoria_usuario_fk")
+
+  @@index([entidade, entidadeId], map: "log_auditoria_idx02")
+  @@index([criadoEm], map: "log_auditoria_idx01")
+  @@index([usuarioId], map: "log_auditoria_idx03")
+  @@map("log_auditoria")
+}
+
+/// Horario da carga automatica de uma fonte, editavel pela tela.
+///
+/// LINHA = OVERRIDE. Ausencia significa "usa a hora de `docs/n8n/fontes.mjs`",
+/// que continua sendo o padrao — nao ha' seed. Semear copiaria o padrao para ca'
+/// e criaria duas fontes de verdade: mudar o codigo depois nao teria efeito,
+/// porque a copia no banco ganharia, e ninguem entenderia por que.
+///
+/// `janelaDias` NAO esta aqui de proposito. Ela nao e' preferencia, e' regra de
+/// negocio: Perdas usa 730 dias porque uma quebra pendente vira aprovada meses
+/// depois e altera um dia ja' fechado; movimentacao usa 60 porque nota fiscal nao
+/// se reclassifica assim. Num campo de tela, alguem a baixaria sem saber disso e
+/// o passado pararia de se corrigir — sem erro nenhum.
+model CargaAgendamento {
+  /// Nome da fonte em `fontes.mjs`. Sem FK: a lista de fontes e' codigo.
+  fonte         String   @id(map: "carga_agendamento_pk")
+  /// No fuso de TZ_APP, nao em UTC — a regra e' "03:15 em Recife".
+  hora          Int
+  minuto        Int
+  atualizadoEm  DateTime @default(now()) @map("atualizado_em")
+  atualizadoPor String?  @map("atualizado_por") @db.Uuid
+
+  usuario Usuario? @relation(fields: [atualizadoPor], references: [id], map: "carga_agendamento_usuario_fk")
+
+  @@index([atualizadoPor], map: "carga_agendamento_idx01")
+  @@map("carga_agendamento")
+}

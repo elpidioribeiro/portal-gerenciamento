@@ -1,0 +1,25 @@
+apiVersion: v2
+name: portal-gd-backend
+description: Portal GD — API do Gerenciamento Diário (Acme Varejo)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ESTE CHART NÃO É O `novo-chart-template` DA ÁREA.
+#
+# Ele foi escrito em 14/09/2026 porque o template não estava na máquina e a
+# pasta `chart/` tinha só `values.yaml` e `fleet.yaml` — o Fleet apontava para
+# um chart que não existia, e não havia NADA para instalar. A estação 5 marcou
+# isso como o vermelho que bloqueava a subida.
+#
+# ANTES DO PRIMEIRO DEPLOY: compare com o `novo-chart-template` e adote a
+# estrutura padrão. O que está aqui é o mínimo que faz o Fleet ter o que
+# aplicar, e não uma proposta de padrão novo para a área.
+# ─────────────────────────────────────────────────────────────────────────────
+
+type: application
+
+# A versão do CHART — muda quando o template muda, não a cada deploy.
+version: 0.1.0
+
+# A versão da APLICAÇÃO. Quem manda no que sobe é `imagem.tag`, escrita pelo
+# pipeline com o SHA do commit; isto é rótulo, e acompanha o package.json.
+appVersion: "0.1.0"

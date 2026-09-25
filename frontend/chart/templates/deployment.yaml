@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.nome }}
+  labels:
+    app: {{ .Values.nome }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.nome }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.nome }}
+    spec:
+      containers:
+        - name: {{ .Values.nome }}
+          {{/* A tag é obrigatória — vazia, o Kubernetes leria `:latest` e o
+               deploy subiria a imagem errada com o pipeline verde. */}}
+          image: "{{ .Values.imagem.repositorio }}:{{ required "imagem.tag é obrigatória — o pipeline a escreve com o SHA do commit" .Values.imagem.tag }}"
+          imagePullPolicy: {{ .Values.imagem.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.servico.portaAlvo }}
+          {{/*
+            O que o `envsubst` do entrypoint do nginx preenche no arranque.
+
+            A imagem traz os dois como `ENV` de fallback, então o pod subia sem
+            isto -- e era esse o problema: `backend.servico` no `values.yaml`
+            não chegava a lugar nenhum, e mudá-lo não mudava nada. Passar aqui
+            faz o valor do chart ser o que vale, como o Dockerfile já dizia.
+
+            `required` nos dois: vazios, o `envsubst` escreveria
+            `proxy_pass http://;` e `resolver ;`, e o nginx morre no arranque
+            com erro de sintaxe -- longe de quem esvaziou o campo.
+          */}}
+          env:
+            - name: BACKEND_SERVICO
+              value: {{ required "backend.servico é obrigatório — é o Service para onde o nginx manda /api" .Values.backend.servico | quote }}
+            - name: DNS_RESOLVER
+              value: {{ required "backend.dnsResolver é obrigatório — é o DNS do cluster que o nginx consulta" .Values.backend.dnsResolver | quote }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.sonda.caminho }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.sonda.caminho }}
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.recursos | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false

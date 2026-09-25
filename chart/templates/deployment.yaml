@@ -1,0 +1,118 @@
+{{/*
+  O Deployment do backend.
+
+  UMA RÉPLICA, e está em `values.yaml` com o motivo: o agendamento das cargas
+  roda DENTRO do processo e a trava de carga concorrente é por processo. Com
+  duas, as duas disparam a mesma carga às 03:15.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.nome }}
+  labels:
+    app: {{ .Values.nome }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.nome }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.nome }}
+    spec:
+      containers:
+        - name: {{ .Values.nome }}
+          {{/*
+            A TAG É OBRIGATÓRIA, e o `required` é deliberado.
+
+            Ela é escrita pelo pipeline com `$CI_COMMIT_SHORT_SHA`. Vazia, o
+            Helm renderizaria `image: repositorio:` -- que o Kubernetes aceita
+            como `:latest`. O deploy subiria a imagem ERRADA com tudo verde, e
+            "reiniciar o pod" passaria a trocar a versão sem ninguém pedir.
+
+            Falhar aqui é barato: o `helm template` do CI já acusa.
+          */}}
+          image: "{{ .Values.imagem.repositorio }}:{{ required "imagem.tag é obrigatória — o pipeline a escreve com o SHA do commit" .Values.imagem.tag }}"
+          imagePullPolicy: {{ .Values.imagem.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.servico.portaAlvo }}
+          env:
+            {{- range $chave, $valor := .Values.env }}
+            - name: {{ $chave }}
+              value: {{ $valor | quote }}
+            {{- end }}
+            {{- if .Values.caInterna.habilitado }}
+            {{/*
+              NODE_EXTRA_CA_CERTS — o que faz o Node confiar na CA interna.
+
+              Derivado do caminho e da chave do volume logo abaixo, e NÃO
+              escrito à mão no `values.yaml`: as duas pontas têm de apontar para
+              o mesmo arquivo, e mantê-las separadas convidaria a variável a
+              sobreviver a uma mudança de caminho apontando para o vazio. O Node
+              não reclama de `NODE_EXTRA_CA_CERTS` inexistente -- ele ignora, e
+              o sintoma volta a ser "ninguém faz login".
+
+              É variável de ambiente do próprio Node, lida no arranque. Não
+              precisa de flag no CMD.
+            */}}
+            - name: NODE_EXTRA_CA_CERTS
+              value: {{ printf "%s/%s" .Values.caInterna.caminho .Values.caInterna.chave | quote }}
+            {{- end }}
+          {{/*
+            OS SEGREDOS VÊM INTEIROS DO SECRET, por `envFrom`.
+
+            Um `env:` listando cada chave obrigaria a manter a lista alinhada
+            com o que o DevOps pôs no secret -- e a chave que faltasse não daria
+            erro aqui: daria boot recusado por `validarEnv`, longe da causa.
+          */}}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secret.nome }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.sonda.liveness.caminho }}
+              port: http
+            initialDelaySeconds: {{ .Values.sonda.liveness.atrasoInicial }}
+            periodSeconds: {{ .Values.sonda.liveness.intervalo }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.sonda.readiness.caminho }}
+              port: http
+            initialDelaySeconds: {{ .Values.sonda.readiness.atrasoInicial }}
+            periodSeconds: {{ .Values.sonda.readiness.intervalo }}
+          resources:
+            {{- toYaml .Values.recursos | nindent 12 }}
+          {{/*
+            A imagem já roda como `node` (uid 1000) — ver o Dockerfile. Isto
+            torna a garantia explícita para quem lê só o chart, e impede que uma
+            imagem futura suba como root sem ninguém notar.
+          */}}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          {{- if .Values.caInterna.habilitado }}
+          volumeMounts:
+            - name: ca-interna
+              mountPath: {{ .Values.caInterna.caminho }}
+              readOnly: true
+          {{- end }}
+      {{- if .Values.caInterna.habilitado }}
+      {{/*
+        O ConfigMap é criado pelo TIME DE INFRA, e não por este chart: o
+        certificado não está no Git, e não deve estar.
+
+        Sem `optional: true` de propósito. Com ele, um ConfigMap ausente faria o
+        pod subir sem o certificado e todo login falharia com o portal verde --
+        exatamente o defeito que este bloco existe para fechar. Sem ele, o pod
+        fica em ContainerCreating e a causa aparece no `describe`.
+      */}}
+      volumes:
+        - name: ca-interna
+          configMap:
+            name: {{ .Values.caInterna.configMap }}
+            items:
+              - key: {{ .Values.caInterna.chave }}
+                path: {{ .Values.caInterna.chave }}
+      {{- end }}

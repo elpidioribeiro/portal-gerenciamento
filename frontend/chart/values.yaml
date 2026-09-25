@@ -1,0 +1,68 @@
+# Portal GD — frontend.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# É ESTE CHART QUE FICA COM O HOST, e não o do backend.
+#
+# A tela chama `/api/v1` na MESMA ORIGEM (o cookie de sessão é `sameSite:
+# strict`), então portal e API respondem no mesmo endereço. O nginx desta
+# imagem serve os estáticos e encaminha `/api` para o Service do backend.
+#
+# Por isso `ingress.habilitado` do backend passou a `false`: dois Ingress para
+# o mesmo host é conflito, e quem ganha depende do controlador.
+# ─────────────────────────────────────────────────────────────────────────────
+
+nome: portal-gd-frontend
+replicas: 2
+
+imagem:
+  # MESMA ressalva do backend: o valor é DEDUZIDO do endereço do repositório e
+  # a porta 5050 não foi confirmada. Confirme antes do primeiro deploy — errar
+  # aqui dá `ImagePullBackOff` com o pipeline verde.
+  repositorio: gitlab.example.com:5050/operacoes/example-team/portal-gd/portal-gd-frontend
+  # Escrita pelo pipeline com o SHA do commit. Vazia, o chart NÃO renderiza.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# DUAS RÉPLICAS, e aqui pode: o nginx não guarda estado nenhum. A restrição de
+# uma réplica é do backend, por causa do agendamento das cargas.
+servico:
+  porta: 80
+  portaAlvo: 8080
+
+ingress:
+  habilitado: true
+  host: portal-gd.example.com
+  tls: true
+
+# O Service do backend, para onde o nginx manda `/api`. Tem de bater com
+# `nome` no chart do backend.
+#
+# ATÉ 15/09/2026 ESTE CAMPO NÃO ERA LIDO POR NADA. O endereço real vinha de um
+# `ENV BACKEND_SERVICO` embutido no Dockerfile, e o `deployment.yaml` não
+# repassava nada -- embora o comentário do Dockerfile afirmasse que "o chart
+# sobrescreve os dois".
+#
+# O estrago que isso faria: alguém renomeia o Service do backend, muda este
+# campo, reimplanta, e o nginx continua procurando o nome antigo. Não dá erro
+# de Helm nem de Kubernetes -- a tela só passa a responder 502 em `/api`, e o
+# campo que a pessoa mudou fica ali parecendo certo.
+backend:
+  servico: portal-gd-backend
+  # O DNS do cluster, que o nginx consulta a cada 10s para reencontrar o
+  # backend quando o pod dele troca de IP.
+  #
+  # O padrão vale para EKS: mesmo com CoreDNS, o Service continua se chamando
+  # `kube-dns` por compatibilidade. Se o cluster usar outro, é aqui que muda --
+  # e era a outra metade do que o Dockerfile dizia que o chart controlava.
+  dnsResolver: kube-dns.kube-system.svc.cluster.local
+
+recursos:
+  requests:
+    cpu: 10m
+    memoria: 32Mi
+  limits:
+    cpu: 100m
+    memoria: 128Mi
+
+sonda:
+  caminho: /healthz

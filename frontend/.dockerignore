@@ -1,0 +1,14 @@
+# O que NÃO entra no contexto de build.
+node_modules
+dist
+.env
+.env.*
+!.env.example
+coverage
+*.log
+*.tsbuildinfo
+# `tests` NÃO entra aqui: o tsconfig os inclui, e sem eles o build type-checa
+# um projeto diferente do que o CI checa. Eles ficam na etapa de build e não
+# chegam à imagem final.
+.vscode
+.idea

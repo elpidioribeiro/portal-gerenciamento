@@ -1,0 +1,1102 @@
+/*
+ * O visual da reunião do N3, portado de `docs/demo-n3.html`.
+ *
+ * Mesmo princípio do `reuniao-n4.css`: os valores vêm do protótipo — 26px/800
+ * no número, −0.7px de tracking, a sombra de 2px, o navy #001F3F — e
+ * reescrevê-los como aproximações de Tailwind foi o que deixou a primeira
+ * versão do N4 parecendo outra tela.
+ *
+ * Arquivo separado, e não classes compartilhadas com o N4: as duas telas têm a
+ * mesma LINGUAGEM e estruturas diferentes. Fundir obrigaria a inventar nomes
+ * que servem às duas, e o protótipo é a referência de cada uma.
+ *
+ * ENCOLHEU de 1033 para ~650 linhas em 09/09/2026, quando o cartão de gerência
+ * virou link para o N4 e os três blocos do acordeão saíram. Foram 55 regras
+ * sem uso: 16 ficaram órfãs naquela mudança (a tabela do desdobramento, o
+ * Pareto, a trilha das ações) e 14 já estavam, de refactors anteriores --
+ * `.n3-resumo-*` e `.n3-par-*` de um rodapé de loja que deixou de existir.
+ *
+ * Regra sem classe é o mesmo defeito de classe sem regra, na direção oposta:
+ * quem for mexer lê um seletor e vai procurar na tela um elemento que ninguém
+ * desenha mais.
+ */
+
+.n3 {
+  /*
+   * `width: 100%` para o container NÃO depender do conteúdo.
+   *
+   * Ele é item de um flex column (o `<main>`), e `mx-auto` põe margens laterais
+   * automáticas -- que em flexbox ABSORVEM o espaço livre e desligam o
+   * `stretch`. O item passa a ser shrink-to-fit: encolhe até o conteúdo e
+   * centraliza.
+   *
+   * O sintoma media 721px de conteúdo dentro de 1325px de tela, com vãos de
+   * 300px de cada lado. E era intermitente por natureza: a largura da PÁGINA
+   * passava a depender do que estava dentro dela, então mudar de semana ou
+   * abrir uma gerência mexia na margem.
+   *
+   * A tela do N4 tinha o mesmo defeito e não aparentava -- o conteúdo dela é
+   * naturalmente largo e chegava perto do `max-width` sozinho.
+   */
+  width: 100%;
+
+  --navy: #001f3f;
+  --navy-medio: #12406f;
+  --fundo: #f1f3f6;
+  --superficie: #ffffff;
+  --borda: #dfe4ec;
+  --borda-sutil: #edf0f5;
+  --borda-hover: #c7d6ea;
+  --texto: #0f1b2d;
+  --sec: #5b6b85;
+  --ter: #8592a8;
+  --off: #a9b4c6;
+  --brand-btn: #cf1030;
+  --ok-bg: #e8f6ee;
+  --ok-borda: #a9dfc1;
+  --ok-texto: #1b7a44;
+  --ok-ponto: #27ae60;
+  --and-bg: #eff3f8;
+  --and-borda: #d2deec;
+  --and-texto: #12406f;
+  --cri-bg: #fcecea;
+  --cri-borda: #f3b3ab;
+  --cri-texto: #a32116;
+  --cri-ponto: #e74c3c;
+  --ris-bg: #fdf2de;
+  --ris-borda: #f3d08a;
+  --ris-texto: #8a5a05;
+  /*
+   * O LARANJA DO "VOCÊ ESTÁ AQUI" -- um só no portal.
+   *
+   * É o `escala.ponto` do Tailwind e o `--esc-ponto` do protótipo, o mesmo que
+   * sublinha a aba ativa do cabeçalho. A barra de GDs usava `#ee5a24`, que
+   * aparecia UMA vez em todo o repositório (conferido) e é mais apagado: as
+   * duas abas respondem a mesma pergunta e apareciam em tons diferentes, com a
+   * de baixo perdendo. Ver §7.60.
+   */
+  --esc-ponto: #ff6b35;
+  /*
+   * O FUNDO da aba ativa, dado pelo analista: `#fff6f2` (09/09/2026).
+   *
+   * NÃO é o `escala.bg` (`#FFF1EB`) do Tailwind e do protótipo, que foi o meu
+   * primeiro palpite: aquele é o fundo do selo de ESCALAÇÃO, um estado de
+   * alerta, e este é o de "você está aqui". Mais claro de propósito -- a aba
+   * marca posição, e o tom de alerta ao lado de um traço laranja leria como
+   * aviso na barra que só diz onde se está.
+   *
+   * Nome próprio, e não `--esc-bg`, justamente para não colar as duas coisas:
+   * mudar o selo de escalação um dia não deve mexer na aba.
+   */
+  --aba-ativa-bg: #fff6f2;
+
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  color: var(--texto);
+}
+
+.n3 h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  line-height: 1.2;
+}
+
+.n3-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ter);
+}
+
+.n3-sub {
+  font-size: 13px;
+  color: var(--sec);
+}
+
+/* ── Semanas ──────────────────────────────────────────────────────────────── */
+
+.n3-semanas {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.n3-sem {
+  min-width: 50px;
+  border: 1px solid var(--borda);
+  border-radius: 999px;
+  background: var(--superficie);
+  padding: 8px 13px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--sec);
+}
+.n3-sem:hover {
+  border-color: var(--borda-hover);
+}
+.n3-sem.on {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: #fff;
+}
+.n3-sem.futura {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.n3-ind-nome {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+}
+/* ── O acordeão da gerência ───────────────────────────────────────────────── */
+
+.n3-ger {
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+  background: var(--superficie);
+  box-shadow: 0 2px 6px rgba(15, 15, 15, 0.05);
+  overflow: hidden;
+}
+
+.n3-cabeca {
+  display: flex;
+  width: 100%;
+  /*
+   * TOPO, e não centro. A coluna do nome cresceu (nome + tamanho + selo), e
+   * centralizar deixava o chevron na altura de "13 áreas de venda" em vez da
+   * do nome -- apontando para a linha secundária.
+   */
+  align-items: flex-start;
+  gap: 28px;
+  padding: 20px 24px;
+  text-align: left;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+  /*
+   * `text-decoration: none` porque isto virou um `<a>` (09/09/2026).
+   *
+   * As regras acima foram escritas para um `<button>`, que nao sublinha nada.
+   * Num link, o padrao do navegador sublinha TODO o conteudo -- nome da
+   * gerencia, "13 areas de venda", os dois percentuais, os chips. O cartao
+   * inteiro riscado, e nenhum teste pegaria: compila, passa no lint, e so'
+   * aparece na tela.
+   */
+  text-decoration: none;
+}
+.n3-cabeca:hover {
+  background: #f7f9fc;
+}
+.n3-nome {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+/* O marcador da cor da gerência, antes do nome. A cor vem inline, de
+   `coresDaGerencia` — aqui fica só a forma, porque a paleta é do TypeScript e
+   duplicá-la no CSS criaria duas listas de gerência para manter. */
+.n3-ponto-ger {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  /* `middle` e não o padrão `baseline`: alinhado à base, um círculo de 8px
+     encosta na linha do texto e parece ter caído. */
+  vertical-align: middle;
+  margin-right: 8px;
+  /* Compensa o `middle`, que sobe o ponto um fio acima do centro visual da
+     maiúscula. */
+  margin-bottom: 2px;
+}
+.n3-sup {
+  font-size: 12px;
+  color: var(--ter);
+  margin-top: 2px;
+}
+/*
+  "ABRIR O N4 →", no fim da linha -- o destino escrito, e não só a seta.
+
+  Era `.n3-seta-ir`, uma seta sozinha em cinza claro. Ela dizia "leva a algum
+  lugar" e não dizia QUAL, e o analista apontou: *"ao passar o botão na área
+  de venda não dá pra saber que vai pro N4 ao clicar"*.
+
+  Três camadas de sinal, das mais fortes para as mais fracas:
+
+    o TEXTO      diz o destino, e está visível em repouso
+    a PASTILHA   dá forma de botão ao conjunto, que a seta solta não tinha
+    o MOVIMENTO  a seta anda 3px no hover -- confirmação, não informação
+
+  A ordem importa: num quadro projetado na parede o mouse não passa em lugar
+  nenhum, e pelo teclado também não. Um affordância que só existe no hover é
+  invisível para os dois casos, e era metade do problema.
+
+  `margin-left: auto` empurra para a direita; `flex-shrink: 0` impede que seja
+  a primeira coisa a ceder quando a linha aperta.
+*/
+.n3-ir {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+  align-self: center;
+  border: 1px solid var(--borda);
+  border-radius: 999px;
+  background: var(--superficie);
+  padding: 5px 10px 5px 12px;
+  color: var(--sec);
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+.n3-ir-txt {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.n3-ir-seta {
+  font-size: 14px;
+  line-height: 1;
+  /* O movimento é só da seta: mover a pastilha inteira arrastaria o texto e
+     faria a linha do cartão parecer instavel a cada passagem do mouse. */
+  transition: transform 120ms ease;
+}
+
+/*
+  O HOVER é do CARTÃO, e pinta a pastilha -- e não o contrário.
+
+  A área clicável é o cartão inteiro (`.n3-cabeca` é o `<a>`), então é ele que
+  tem de reagir. Se a pastilha tivesse `:hover` próprio, ela acenderia só
+  quando o mouse encostasse nela -- 40px de um alvo de 1200px --, sugerindo que
+  o clique válido é ali.
+*/
+.n3-cabeca:hover .n3-ir {
+  border-color: var(--navy-medio);
+  background: var(--navy-medio);
+  color: #fff;
+}
+.n3-cabeca:hover .n3-ir-seta {
+  transform: translateX(3px);
+}
+
+/*
+  E o FOCO pelo teclado tem o mesmo tratamento do hover.
+  `:focus-visible` e não `:focus`: o segundo acende também no clique de mouse,
+  e aí o cartão ficaria com a pastilha azul depois de voltar do N4.
+*/
+.n3-cabeca:focus-visible {
+  outline: 2px solid var(--navy-medio);
+  outline-offset: -2px;
+}
+.n3-cabeca:focus-visible .n3-ir {
+  border-color: var(--navy-medio);
+  background: var(--navy-medio);
+  color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .n3-ir-seta {
+    transition: none;
+  }
+  .n3-cabeca:hover .n3-ir-seta {
+    transform: none;
+  }
+}
+
+/* ── KPI ──────────────────────────────────────────────────────────────────── */
+
+.n3-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* 158px apertava "VENDAS R$ 33,95 mi  META R$ 31,54 mi" contra a borda
+     da coluna vizinha. */
+  min-width: 186px;
+}
+.n3-kpi-n {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ter);
+}
+.n3-kpi-r {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.n3-kpi-v {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.7px;
+  line-height: 1;
+}
+.n3-kpi-m {
+  font-size: 11px;
+  color: var(--ter);
+}
+.n3-kpi-c {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sec);
+}
+
+.n3-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.n3-ponto {
+  height: 7px;
+  width: 7px;
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+
+.n3-barra {
+  height: 100%;
+  border-radius: 5px;
+  background: var(--navy-medio);
+}
+.n3-barra.vital {
+  background: var(--brand-btn);
+}
+
+/* ── Responsivo ───────────────────────────────────────────────────────────
+   Mesma regra do N4: abaixo de 900px o cabeçalho da gerência quebra em vez de
+   espremer o número, e a tabela de desdobramento rola na horizontal. */
+@media (max-width: 900px) {
+  .n3-cabeca {
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+  .n3-kpi {
+    min-width: 140px;
+    flex: 1 1 140px;
+  }
+}
+
+@media (max-width: 620px) {
+  .n3-cabeca {
+    padding: 14px;
+    gap: 12px;
+  }
+  .n3-kpi {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .n3-kpi-v {
+    font-size: 22px;
+  }
+  .n3-corpo {
+    padding: 14px;
+  }
+  /*
+   * A linha do Pareto vira duas: a causa em cima, a barra e o número embaixo.
+   * Com 224px fixos para o nome sobrava quase nada para a barra num celular, e
+   * a barra é o que se compara.
+   */
+  .n3-linha-pareto {
+    flex-wrap: wrap;
+    padding: 8px 14px;
+  }
+  }
+
+/*
+ * Em aparelho de TOQUE o hover não acontece — o botão ficaria invisível para
+ * sempre. `hover: none` cobre tablet e celular independentemente da largura.
+ */
+@media (hover: none) {
+  .n3-abrir-acao {
+    visibility: visible;
+  }
+}
+
+/*
+ * A coluna de identidade da gerência: nome, tamanho e situação, empilhados.
+ *
+ * São a mesma frase -- "Construção, 13 áreas, fora da meta" --, e o selo estava
+ * no outro extremo do cabeçalho, separado por um vão de ~90px que o fazia
+ * parecer de outra coisa.
+ */
+.n3-titulo-ger {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+  flex-grow: 1;
+  min-width: 170px;
+}
+
+/*
+ * O nome do indicador ("Vendas") deixa de ser um filete.
+ *
+ * Era texto pequeno com uma régua de 1px atravessando a tela -- peso visual de
+ * separador para o que é o TÍTULO da seção. Agora é um rótulo com corpo, e a
+ * régua sumiu: o espaço já separa.
+ */
+.n3-ind-nome {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+  color: var(--navy);
+}
+/* ── O cabeçalho de três cartões ──────────────────────────────────────────
+   Vendas na meta, Vendedores na meta, e a projeção em REAIS no fim — a ordem
+   mudou em 09/09/2026. O comentário que ficava aqui dizia "o primeiro é o
+   único que responde em reais, e por isso é o mais largo e o mais escuro":
+   valia quando a projeção abria a fileira, e passou a descrever o cartão
+   errado.
+
+   Hoje o slot mais largo (`1.1fr`) está na PRIMEIRA posição e o `.destaque` na
+   TERCEIRA — decidir se o realce acompanha a projeção ou fica com Vendas é
+   pendência aberta. */
+.n3-topo {
+  display: grid;
+  /*
+    COLUNAS IGUAIS. A primeira era mais larga (`minmax(280px, 1.1fr)`) porque
+    o cartão de projeção ficava nela: rótulo longo, valor em reais e os dois
+    chips de área pediam mais espaço que um percentual.
+
+    Com Vendas na meta passando a ser o primeiro, o slot largo deixou de casar
+    com o conteúdo largo -- sobrava vazio no primeiro e apertava o do meio.
+    Iguais, cada cartão recebe o mesmo terço e os chips seguem quebrando em
+    duas linhas quando precisam (`flex-wrap` em `.chips`).
+
+    `auto-fit` e não três colunas fixas: no N4 os cartões de Vendas e Vendedor
+    são condicionais, e um template de três deixaria coluna vazia quando um
+    deles não vem.
+  */
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0;
+  margin-bottom: 22px;
+  border: 1px solid var(--borda);
+  border-radius: 14px;
+  background: var(--superficie);
+  overflow: hidden;
+}
+.n3-topo-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 24px;
+  min-width: 0;
+  /* A régua separa sem caixa: três cartões com borda própria viravam três
+     caixas competindo, e eles são um bloco só. */
+  border-left: 1px solid var(--borda-sutil);
+}
+.n3-topo-card:first-child {
+  border-left: 0;
+}
+.n3-topo-card.destaque {
+  background: #fbfcfe;
+}
+.n3-topo-linha {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.n3-topo-rot {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ter);
+}
+.n3-topo-v {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1.05;
+  color: var(--texto);
+  font-variant-numeric: tabular-nums;
+}
+.n3-topo-c {
+  font-size: 12px;
+  color: var(--sec);
+}
+/*
+  O FAROL SOLTO, para compor com qualquer elemento do cartão.
+
+  Existia só composto (`.n3-topo-v.n3-ok`), e aquele seletor tem razão de ser:
+  `.n3-topo-v` declara `color`, e duas classes soltas empatariam em
+  especificidade. Mas o farol passou a pintar também a legenda e o percentual
+  da faixa (10/09/2026), e nenhum dos dois declara cor própria -- para eles a
+  classe solta basta, e é o que o `reuniao-n4.css` já fazia.
+
+  As duas formas convivem de propósito: a composta vence `.n3-topo-v`, a solta
+  serve o resto. Os VALORES saem das mesmas variáveis, então não há duas
+  paletas para manter.
+*/
+.n3-ok {
+  color: var(--ok-texto);
+}
+.n3-ruim {
+  color: var(--cri-texto);
+}
+.n3-vazio {
+  color: var(--ter);
+}
+
+/*
+  A FAIXA DA PROJEÇÃO: rótulo à esquerda, percentual à direita.
+
+  Forma dada pelo analista em 10/09/2026. O filete de cima separa o que é outra
+  pergunta: as duas linhas acima dizem QUANTO em reais e de que LADO da meta;
+  esta diz o tamanho RELATIVO. Como texto corrido as três viravam um parágrafo.
+
+  `baseline`, e não `center`: o rótulo tem 10px e o valor 13px, e centrados na
+  caixa as duas bases ficam fora de linha -- o que se nota justamente porque
+  estão nas pontas da mesma faixa.
+
+  `margin-top: 2px` contra o `gap: 10px` do cartão: com os 10px cheios mais os
+  10 de `padding-top`, o filete afastava demais e a faixa lia como um segundo
+  cartão dentro do primeiro.
+*/
+.n3-topo-proj {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--borda-sutil);
+}
+/* O percentual: peso de número, tamanho de legenda. A cor vem do farol
+   (`.n3-ok` / `.n3-ruim`), como no valor grande e na linha do meio. */
+.n3-topo-proj-v {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.1px;
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* O número e a régua, colados. Sem este invólucro o `space-between` da
+   `.n3-topo-linha` joga a régua na borda oposta do cartão. Mesmo gap do
+   `.n3-kpi-r`, que faz o mesmo par no cartão de gerência. */
+.n3-topo-par {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+/* A régua ao lado do percentual do topo -- "/ 100%". Par do `.n3-kpi-m`, com
+   os mesmos valores: é a mesma informação em dois níveis de agregação. */
+.n3-topo-m {
+  font-size: 11px;
+  color: var(--ter);
+}
+
+/* O farol NO NÚMERO do consolidado, e não só na barra abaixo dele.
+   Seletor COMPOSTO, e não `.n3-ok` sozinho: `.n3-topo-v` já declara
+   `color`, e duas classes soltas empatam em especificidade -- quem vence
+   passa a ser a ordem no arquivo, que a próxima edição reordena sem
+   perceber. Com as duas classes juntas o farol ganha por especificidade,
+   onde quer que a regra esteja. Mesmos nomes do N4. */
+.n3-topo-v.n3-ok {
+  color: var(--ok-texto);
+}
+.n3-topo-v.n3-ruim {
+  color: var(--cri-texto);
+}
+/* Cinza: sem meta ou sem patamar (§7.37) não há o que pintar. */
+.n3-topo-v.n3-vazio {
+  color: var(--ter);
+}
+
+/* Os dois chips do consolidado: quantas áreas de cada lado da meta. */
+.n3-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 5px;
+}
+.n3-chip-mini {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.n3-chip-mini.ruim {
+  background: var(--cri-bg);
+  color: var(--cri-texto);
+}
+.n3-chip-mini.ok {
+  background: var(--ok-bg);
+  color: var(--ok-texto);
+}
+
+/* "Vendas" e "Meta" na composição do KPI: rótulo, não valor.
+   Menor, mais claro e em caixa alta pequena, para o olho pegar os dois VALORES
+   primeiro e usar os rótulos só para desambiguar qual é qual. Sem isto os
+   quatro pedaços têm o mesmo peso e a linha vira uma frase para ler. */
+.n3-comp-rot {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ter);
+  margin-right: 1px;
+}
+
+/* A régua entre o par "Vendas x" e o par "Meta y".
+   Elemento de 1px, e não o caractere "|": o glifo herda peso e cor do texto e
+   sai mais forte que os rótulos que deveria apenas separar. */
+.n3-comp-sep {
+  display: inline-block;
+  width: 1px;
+  height: 11px;
+  background: var(--borda);
+  margin: 0 10px;
+  vertical-align: -1px;
+}
+
+/* ── A barra contra o alvo ────────────────────────────────────────────────
+   O número sozinho não tem escala: 92% e 104% parecem vizinhos escritos, e são
+   lados opostos da meta. */
+.n3-barra-trilho {
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: #e9edf3;
+  overflow: hidden;
+}
+.n3-barra-cheio {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.25s;
+}
+.n3-barra-cheio.ok {
+  background: #16a34a;
+}
+/*
+  A FAIXA ÂMBAR SAIU, e o hex fica registrado aqui de propósito.
+
+  Era "quase lá" (>= 95% da meta). Vendas tem duas faixas -- quem decide isso
+  é `FAIXA_POR_INDICADOR` no servidor, que só dá faixa do meio a NPS e Perdas.
+  Mantida como classe fazia o número (binário, por `naMeta`) e a barra
+  discordarem: 97% saía com número vermelho e barra âmbar.
+
+  Não apago a regra porque NPS e Perdas vão precisar dela quando tiverem tela
+  de reunião -- e aí a faixa vem do SERVIDOR, junto do ponto, e não de um
+  limiar reescrito no cliente. O valor é #f0a020, o mesmo do dashboard.
+*/
+.n3-barra-cheio.ruim {
+  background: var(--cri-ponto);
+}
+.n3-barra-cheio.sem {
+  background: var(--off);
+}
+.n3-barra-vazia {
+  display: block;
+  height: 5px;
+  width: 34px;
+  border-radius: 999px;
+  background: #e9edf3;
+}
+
+/* O quanto andou desde a semana passada. */
+.n3-delta {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ter);
+  font-variant-numeric: tabular-nums;
+}
+.n3-delta.sobe {
+  color: var(--ok-texto);
+}
+.n3-delta.desce {
+  color: var(--cri-texto);
+}
+
+/* ── O cabeçalho da lista ─────────────────────────────────────────────── */
+.n3-lista-cabeca {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.n3-lista-dica {
+  font-size: 12px;
+  color: var(--ter);
+  flex-grow: 1;
+}
+.n3-colunas {
+  display: none;
+}
+
+/* ── A barra de GDs ──────────────────────────────────────────────────────── */
+/*
+ * De qual Gerenciamento Diário é esta reunião.
+ *
+ * Acima do cabeçalho porque troca a tela inteira, e não um filtro dentro dela.
+ * O sublinhado laranja é o mesmo das abas da barra de navegação: é a mesma
+ * pergunta -- "onde eu estou" --, e responder com dois desenhos diferentes
+ * obrigaria a aprender duas vezes.
+ */
+/*
+ * MAIS DESTACADA em 09/09/2026. Palavra do analista: *"pouco destacado"*.
+ *
+ * Ela media 14px na aba e 10px no rótulo, e em pixels isso batia com a
+ * referência que ele mandou -- ~7,5px por caractere nos dois. O que não batia
+ * era a PROPORÇÃO: o mesmo desenho num quadro de 1540px ocupa 11% da largura,
+ * e na referência de 1140px ocupava 15%. Uma barra que troca a tela inteira
+ * lida como 11% da largura se lê como legenda.
+ *
+ * Foi para 18px na aba e 11px no rótulo, e o rótulo escureceu de `--ter` para
+ * `--sec`: ele nomeia a barra, e em cinza claro sumia ao lado da aba em negrito.
+ */
+.n3-gds {
+  /* Primeiro item da coluna, antes da faixa de aviso (`order: -1`) e do
+     conteúdo (`0`). Ver `.faixa-aviso` em `styles.css`. */
+  order: -2;
+  /*
+    `flex-end`, e não `center`.
+    Com tamanhos iguais dava no mesmo, e com 11px ao lado de 18px não dá: os
+    centros alinhados deixam o rótulo ~3px acima da linha de base da aba, e o
+    desalinho aparece justamente porque as duas coisas estão na mesma faixa.
+    Alinhados por baixo, `padding-bottom` de cada um encosta os dois textos na
+    mesma linha -- 15px no rótulo contra os 12px + 3px de borda da aba.
+  */
+  /*
+    A FAIXA e' a MOLDURA; o arranjo mora em `.n3-gds-conteudo`.
+
+    Ela era o proprio flex, e por isso o `margin-left: auto` das abas mandava
+    elas para a borda da JANELA -- a faixa sangra de ponta a ponta. Numa tela de
+    1900px a identidade ficava num canto e as abas no outro. Mesma divisao do
+    `.n4-faixa` + `.n4-faixa-conteudo`, pelo mesmo motivo.
+  */
+  display: block;
+  /*
+    2px, e o afastamento do rótulo vem do `padding-right` dele.
+    Eram 24px para todos, e isso valia quando a aba media a palavra. Agora ela
+    tem 16px de respiro de cada lado: 24px de `gap` somados aos dois respiros
+    dariam 56px entre "Vendas" e "NPS", e abas separadas assim leem como quatro
+    botões soltos, não como uma fila de abas.
+  */
+  gap: 2px;
+  /*
+    O FILETE DE 2px NA TINTA DA FAIXA, como no N4 (10/09/2026).
+
+    Era 1px em `--borda` — um risco cinza de tabela. No N4 a faixa fecha com 2px
+    na cor do setor, e é isso que faz a barra ler como faixa de cabeçalho e não
+    como linha de grade.
+
+    A aba ativa cobre o filete com `margin-bottom: -2px`, e é por isso que o
+    valor está repetido lá: mudar um sem o outro deixa a aba flutuando 1px acima
+    da linha, ou cobrindo demais.
+  */
+  border-bottom: 2px solid var(--faixa-destaque);
+  margin-bottom: 18px;
+  padding-bottom: 0;
+  flex-wrap: wrap;
+  /*
+    A TINTA DA FAIXA — navy a 5% sobre branco, a mesma receita do `.n4-faixa`
+    (duas camadas na mesma declaração: a cor por cima do `--superficie`, porque
+    fixa ela não pode ser translúcida ou o conteúdo passa por trás).
+
+    O navy é fixo aqui, e no N4 vem da gerência: esta tela não tem gerência
+    única — é a soma delas —, e `coresDaGerencia` devolveria o cinza de "não
+    sei" em todas as filiais. As duas variáveis ficam declaradas nesta regra
+    para o ponto e o filete lerem a mesma fonte.
+  */
+  --faixa-destaque: #16223d;
+  --faixa-tinta: rgba(22, 34, 61, 0.05);
+
+  /*
+    FIXA embaixo do cabecalho global (10/09/2026), como a faixa do N4.
+
+    `--altura-cabecalho` e' medida em `AppHeader` por `ResizeObserver`: as duas
+    barras dele tem `min-h` e `flex-wrap`, entao a altura muda com a largura e
+    com o conteudo. O fallback de 124px (72 + 52) so' vale no primeiro quadro.
+
+    `z-index: 20` fica ABAIXO do 30 do cabecalho: as duas se sobrepoem por um
+    instante na rolagem, e quem tem de vencer e' a de navegacao.
+
+    FUNDO BRANCO, e nao transparente: fixa, o conteudo passaria por tras da
+    barra. E' tambem o que a referencia do analista mostrava -- uma faixa branca
+    sangrando de ponta a ponta, o que era impossivel enquanto ela vivia dentro
+    do container de conteudo.
+  */
+  position: sticky;
+  top: var(--altura-cabecalho, 124px);
+  z-index: 20;
+  background: linear-gradient(var(--faixa-tinta), var(--faixa-tinta)), var(--superficie);
+
+  /*
+    A barra carrega tambem a classe `.n3`, que declara `flex-direction: column`
+    e `width: 100%`. As duas brigam com o que esta faixa e':
+
+      `column`      empilharia rotulo, abas e recorte, um por linha
+      `width: 100%` com margem negativa DESLOCA sem alargar -- a faixa
+                    sangraria para a esquerda e sobraria branco a direita
+
+    E' o mesmo par de sobrescritas que `.n4-faixa` ja' faz, pelo mesmo motivo.
+  */
+  flex-direction: row;
+  width: auto;
+  /* Devolve o gutter que o `-mx-gutter` cancelou, para o rotulo comecar onde o
+     conteudo comeca -- os dois com o mesmo recuo em qualquer largura. */
+  padding-left: 32px;
+  padding-right: 32px;
+  /*
+   * RESPIRO EM CIMA, e nada embaixo (10/09/2026).
+   *
+   * A altura da faixa vinha só das abas: 48px. O bloco de identidade da direita
+   * mede 44px, e sobravam 2px de cada lado — medido. Com 8px em cima a faixa
+   * vai a 56px, praticamente a da faixa do N4 (57px), que é o estilo pedido.
+   *
+   * Embaixo continua zero: a aba encosta na linha da faixa, e é isso que faz
+   * aba ser aba. Um `padding-bottom` a descolaria e ela viraria botão.
+   */
+  padding-top: 8px;
+}
+/*
+  O CONTEUDO DA FAIXA, centralizado na mesma coluna do resto da tela.
+
+  `max-width` e `margin: 0 auto` iguais aos do container de conteudo: as duas
+  pontas -- identidade e abas -- param onde a tela comeca e termina, em qualquer
+  largura. Sem isto, `margin-left: auto` mede contra a janela.
+
+  `align-items: flex-end` porque a aba encosta na linha da faixa, e e' isso que
+  faz aba ser aba. O `gap` de 2px e' o que a barra tinha: a aba ja' tem 16px de
+  respiro de cada lado.
+*/
+.n3-gds-conteudo {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex-wrap: wrap;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+/*
+  A IDENTIDADE DA FAIXA -- a MESMA do N4, e agora tambem o mesmo LAYOUT.
+
+  Primeira tentativa: peguei os tres elementos (ponto, rotulo, nome), empilhei
+  em duas linhas e joguei no canto direito, em fundo branco. O analista pos as
+  duas telas lado a lado: *"eu pedi pra ser parecido, voce fez um layout
+  pessimo"*. Estava certo -- copiar as pecas nao e' copiar o desenho.
+
+  O N4 e': `● N4 · VENDAS · NOR  Construcao` -- uma linha, a esquerda, fundo
+  tintado, filete de 2px embaixo. Aqui e' igual, com os MESMOS valores.
+
+  `align-items: baseline` para o rotulo de 12px e o nome de 18px assentarem na
+  mesma linha. O ponto nao participa da base (e' um circulo de 10px), e por isso
+  leva `align-self: center` na regra dele.
+*/
+.n3-faixa-esq {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  /* A barra alinha por BAIXO por causa das abas; a identidade vai ao centro. */
+  align-self: center;
+  padding-bottom: 3px;
+}
+.n3-faixa-ponto {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--faixa-destaque);
+  flex: 0 0 auto;
+  align-self: center;
+}
+.n3-faixa-rot {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #6b7488;
+  white-space: nowrap;
+}
+.n3-faixa-nome {
+  font-size: 18px;
+  font-weight: 800;
+  color: #16223d;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+/*
+  AS ABAS A ESQUERDA -- e elas estavam a direita por um motivo que acabou.
+
+  O `margin-left: auto` existia para empurrar as abas para a ponta OPOSTA da
+  identidade ("identidade de um lado, controle do outro"). A identidade subiu
+  para o cabecalho em 12/09/2026, e sem ela o `auto` passou a empurrar as abas
+  contra uma ponta vazia: a faixa ficava com um vao de mil pixels e os botoes
+  espremidos na borda direita.
+
+  Sozinhas, elas comecam onde todo o resto da tela comeca. O `gap` de 2px e' o
+  que a barra ja' tinha: a aba tem 16px de respiro de cada lado, e somar mais
+  faria quatro botoes soltos em vez de uma fila de abas.
+*/
+.n3-gds-abas {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+/*
+  Abaixo de 760px a identidade SOME, e as abas ficam.
+
+  Elas sao o controle; a identidade se repete no titulo logo abaixo. O corte era
+  900px quando isto era um texto de 10px no canto -- agora o bloco e' maior, e a
+  largura em que ele passa a disputar espaco com quatro abas e' outra.
+*/
+@media (max-width: 760px) {
+  .n3-faixa-esq {
+    display: none;
+  }
+}
+ * Só DENTRO da barra. `.n3-eyebrow` é a classe de todos os olhos da tela --
+ * "NOR · Gerência Geral", "Semana" --, e mexer nela aqui mudaria os outros de
+ * tabela por tabela, que não é o que foi pedido.
+ */
+.n3-gds .n3-eyebrow {
+  /*
+    14px, MEDIDO na tela e nao deduzido.
+    A conta dizia 15 (12 do respiro da aba + 3 da borda dela), e a aba tem
+     para cobrir a linha da barra -- 1px que a conta nao
+    tinha. Medido: rotulo com base em 71px, aba em 72px. Com 14 os dois textos
+    caem na mesma linha.
+  */
+  padding-bottom: 14px;
+  /* O afastamento até a primeira aba mora aqui, e não no `gap` da barra. */
+  padding-right: 20px;
+  font-size: 11px;
+  color: var(--sec);
+}
+/*
+ * A ABA TEM FORMA DE ABA: respiro dos lados, e o sublinhado atravessando ele.
+ *
+ * Era `padding: 0 2px 12px`, e com isso o traço laranja media a LARGURA DA
+ * PALAVRA -- 53px sob "Vendas". Na referência do analista ele mede ~83px,
+ * porque passa por baixo do respiro também. É o que faz o traço ler como aba
+ * selecionada em vez de sublinhado de texto, e era metade do "pouco
+ * destacado".
+ *
+ * 15px, e não 18: medi a referência em ~8,8px por caractere no negrito, que dá
+ * 15px. Tinha subido para 18 antes de eu ter a imagem, o que passava do alvo.
+ */
+.n3-gd {
+  border: 0;
+  background: none;
+  padding: 13px 16px 12px;
+  /* -2px para cobrir o filete de 2px da faixa. Ver `.n3-gds`. */
+  margin-bottom: -2px;
+  border-bottom: 3px solid transparent;
+  border-radius: 8px 8px 0 0;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  color: var(--sec);
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+.n3-gd:hover {
+  background: #f7f9fc;
+  color: var(--texto);
+}
+/*
+ * A ATIVA É UMA ABA PREENCHIDA: fundo pêssego, texto escuro, traço laranja.
+ *
+ * Os três juntos, e não o traço sozinho, porque é a referência do analista
+ * (09/09/2026) e porque o traço sozinho já tinha falhado duas vezes nesta
+ * sessão em ser notado -- "pouco destacado", e depois "tá faltando o destaque
+ * laranja" sobre uma barra que TINHA o traço laranja. Um sinal que precisa ser
+ * apontado não está sinalizando.
+ */
+.n3-gd.on {
+  font-weight: 800;
+  color: var(--texto);
+  background: var(--aba-ativa-bg);
+  border-bottom-color: var(--esc-ponto);
+}
+/*
+ * O hover NÃO tira o pêssego da ativa.
+ *
+ * A regra genérica de hover pinta `#f7f9fc`, um cinza azulado, e ela venceria
+ * aqui por vir depois -- passar o mouse na aba em que já se está apagaria a
+ * marca dela. `--aba-ativa-bg` de novo, e não `background: none`: manter é o
+ * ponto.
+ */
+.n3-gd.on:hover {
+  background: var(--aba-ativa-bg);
+}
+
+/*
+ * "Este GD ainda não tem reunião cadastrada."
+ *
+ * Tom de AVISO e não de erro (`--ris-*`, o âmbar): não é defeito, é cadastro
+ * que ainda não existe. Vermelho mandaria procurar o que consertar.
+ */
+.n3-gd-vazio {
+  margin: -6px 0 16px;
+  border: 1px solid var(--ris-borda);
+  border-radius: 10px;
+  background: var(--ris-bg);
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--ris-texto);
+}
+
+/* "Vendas" carrega o peso; "Reunião diária" fica ao lado, mais leve. */
+.n3-h1-sub {
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--sec);
+  letter-spacing: 0;
+}
+
+/*
+  O RECORTE no topo da pagina, com o selo do nivel (12/09/2026).
+
+  Voltou para ca' quando a faixa fixa subiu para o cabecalho como abas de GD. O
+  selo existe porque o degrau da cadeia e' o que o olho procura primeiro: em
+  texto corrido, "N3" se perdia no meio de "N3 · CEN · GERENCIA GERAL".
+*/
+.n3-recorte {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--texto-ter);
+}
+.n3-selo-nivel {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 5px;
+  background: var(--borda);
+  color: var(--texto-sec);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
